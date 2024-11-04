@@ -2,12 +2,11 @@ import datetime
 
 import numpy as np
 import pandas as pd
+import pymmwr
 from pandas.tseries.holiday import USFederalHolidayCalendar
 
-import pymmwr
 
-
-def date_to_ew_str(row, date_col_name='wk_end_date'):
+def date_to_ew_str(row, date_col_name="wk_end_date"):
     ew = pymmwr.date_to_epiweek(datetime.date.fromisoformat(row[date_col_name]))
     # ew_str = pd.Series(str(ew.year) + str(ew.week))
     ew_str = str(ew.year) + str(ew.week)
@@ -47,7 +46,7 @@ def convert_epiweek_to_season(epiweek):
   update_inds = (epiweek_week <= 30)
   epiweek_year = epiweek_year - update_inds
   season = epiweek_year.astype(str)
-  season = season + '/' + (season.str[-2:].astype(int) + 1).astype(str)
+  season = season + "/" + (season.str[-2:].astype(int) + 1).astype(str)
   
   return season
 
@@ -66,10 +65,10 @@ def get_season_hol(start_year):
     return_name=True)
     
   hol = hol.reset_index()
-  hol.columns = ['date', 'holiday']
-  hol = hol.loc[hol['holiday'].isin(['Thanksgiving Day', 'Christmas Day'])]
+  hol.columns = ["date", "holiday"]
+  hol = hol.loc[hol["holiday"].isin(["Thanksgiving Day", "Christmas Day"])]
   
-  hol['season'] = str(start_year) + '/' + str(start_year + 1)[-2:]
+  hol["season"] = str(start_year) + "/" + str(start_year + 1)[-2:]
   
   return hol
 
@@ -77,6 +76,6 @@ def get_season_hol(start_year):
 def get_holidays():
   hol = pd.concat([get_season_hol(sy) for sy in range(1997, 2024)],
                   ignore_index=True)
-  hol['season_week'] = hol.apply(convert_datetime_to_season_week, axis=1, date_col_name='date')
+  hol["season_week"] = hol.apply(convert_datetime_to_season_week, axis=1, date_col_name="date")
   
-  return hol[['season', 'holiday', 'date', 'season_week']]
+  return hol[["season", "holiday", "date", "season_week"]]
