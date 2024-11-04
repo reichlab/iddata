@@ -11,8 +11,11 @@ classifiers = [
 dynamic = ["version"]
 
 dependencies = [
+    "numpy",
     "pandas",
+    "pymmwr",
     "rich",
+    "s3fs",
     "toml"
 ]
 

@@ -1,26 +1,28 @@
-from pathlib import Path
 import glob
 
 from itertools import product
+from urllib.parse import urljoin
 
 import numpy as np
 import pandas as pd
-
 import pymmwr
+import s3fs
 
-from . import utils
+from iddata import utils
 
 class FluDataLoader():
-  def __init__(self, data_raw) -> None:
-    self.data_raw = Path(data_raw)
+  def __init__(self) -> None:
+    self.data_raw = 'https://infectious-disease-data.s3.amazonaws.com/data-raw/'
 
+  def _construct_data_raw_url(self, relative_path):
+    return urljoin(self.data_raw, relative_path)
 
   def load_fips_mappings(self):
-    return pd.read_csv(self.data_raw / 'fips-mappings/fips_mappings.csv')
+    return pd.read_csv(self._construct_data_raw_url('fips-mappings/fips_mappings.csv'))
 
 
   def load_flusurv_rates_2022_23(self):
-    dat = pd.read_csv(self.data_raw / 'influenza-flusurv/flusurv-rates/flusurv-rates-2022-23.csv',
+    dat = pd.read_csv(self._construct_data_raw_url('influenza-flusurv/flusurv-rates/flusurv-rates-2022-23.csv'),
                       encoding='ISO-8859-1',
                       engine='python')
     dat.columns = dat.columns.str.lower()
@@ -59,7 +61,7 @@ class FluDataLoader():
                               age_labels=['0-4 yr', '5-17 yr', '18-49 yr', '50-64 yr', '65+ yr', 'Overall']
                               ):
     # read flusurv data and do some minimal preprocessing
-    dat = pd.read_csv(self.data_raw / 'influenza-flusurv/flusurv-rates/old-flusurv-rates.csv',
+    dat = pd.read_csv(self._construct_data_raw_url('influenza-flusurv/flusurv-rates/old-flusurv-rates.csv'),
                       encoding='ISO-8859-1',
                       engine='python')
     dat.columns = dat.columns.str.lower()
@@ -104,11 +106,11 @@ class FluDataLoader():
 
   def load_us_census(self, fillna = True):
     files = [
-      self.data_raw / 'us-census/nst-est2019-alldata.csv',
-      self.data_raw / 'us-census/NST-EST2022-ALLDATA.csv']
+      self._construct_data_raw_url('us-census/nst-est2019-alldata.csv'),
+      self._construct_data_raw_url('us-census/NST-EST2022-ALLDATA.csv')]
     us_pops = pd.concat([self.load_one_us_census_file(f) for f in files], axis=0)
     
-    fips_mappings = pd.read_csv(self.data_raw / 'fips-mappings/fips_mappings.csv')
+    fips_mappings = pd.read_csv(self._construct_data_raw_url('fips-mappings/fips_mappings.csv'))
     
     hhs_pops = us_pops.query("location != 'US'") \
       .merge(
@@ -143,7 +145,7 @@ class FluDataLoader():
 
   def load_hosp_burden(self):
     burden_estimates = pd.read_csv(
-      self.data_raw / 'burden-estimates/burden-estimates.csv',
+      self._construct_data_raw_url('burden-estimates/burden-estimates.csv'),
       engine='python')
 
     burden_estimates.columns = ['season', 'hosp_burden']
@@ -220,7 +222,7 @@ class FluDataLoader():
 
 
   def load_who_nrevss_positive(self):
-    dat = pd.read_csv(self.data_raw / 'influenza-who-nrevss/who-nrevss.csv',
+    dat = pd.read_csv(self._construct_data_raw_url('influenza-who-nrevss/who-nrevss.csv'),
                       encoding='ISO-8859-1',
                       engine='python')
     dat = dat[['region_type', 'region', 'year', 'week', 'season', 'season_week', 'percent_positive']]
@@ -239,9 +241,9 @@ class FluDataLoader():
                   drop_pandemic_seasons=True,
                   burden_adj=False):
     # read ilinet data and do some minimal preprocessing
-    files = [self.data_raw / 'influenza-ilinet/ilinet.csv',
-             self.data_raw / 'influenza-ilinet/ilinet_hhs.csv',
-             self.data_raw / 'influenza-ilinet/ilinet_state.csv']
+    files = [self._construct_data_raw_url('influenza-ilinet/ilinet.csv'),
+             self._construct_data_raw_url('influenza-ilinet/ilinet_hhs.csv'),
+             self._construct_data_raw_url('influenza-ilinet/ilinet_state.csv')]
     dat = pd.concat(
       [ pd.read_csv(f, encoding='ISO-8859-1', engine='python') for f in files ],
       axis = 0)
@@ -308,7 +310,9 @@ class FluDataLoader():
       else:
         # find the largest stored file dated on or before the as_of date
         as_of_file_path = f'influenza-hhs/hhs-{str(as_of)}.csv'
-        all_file_paths = sorted(glob.glob('influenza-hhs/hhs-????-??-??.csv', root_dir = self.data_raw))
+        glob_results = s3fs.S3FileSystem(anon=False) \
+            .glob('infectious-disease-data/data-raw/influenza-hhs/hhs-????-??-??.csv')
+        all_file_paths = sorted([f[len('infectious-disease-data/data-raw/'):] for f in glob_results])
         all_file_paths = [f for f in all_file_paths if f <= as_of_file_path]
         file_path = all_file_paths[-1]
     else:
@@ -316,7 +320,7 @@ class FluDataLoader():
         raise NotImplementedError('Functionality for loading all seasons of HHS data with specified as_of date is not implemented.')
       file_path = 'influenza-hhs/hhs_complete.csv'
     
-    dat = pd.read_csv(self.data_raw / file_path)
+    dat = pd.read_csv(self._construct_data_raw_url(file_path))
     dat.rename(columns={'date': 'wk_end_date'}, inplace=True)
 
     ew_str = dat.apply(utils.date_to_ew_str, axis=1)
@@ -445,7 +449,7 @@ class FluDataLoader():
         raise ValueError('Only None and "4rt" are supported for the power_transform argument.')
     
     us_census = self.load_us_census()
-    fips_mappings = pd.read_csv(self.data_raw / 'fips-mappings/fips_mappings.csv')
+    fips_mappings = pd.read_csv(self._construct_data_raw_url('fips-mappings/fips_mappings.csv'))
     
     if 'hhs' in sources:
         df_hhs = self.load_hhs(**hhs_kwargs)
