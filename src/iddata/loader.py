@@ -309,7 +309,7 @@ class FluDataLoader():
       else:
         # find the largest stored file dated on or before the as_of date
         as_of_file_path = f"influenza-hhs/hhs-{str(as_of)}.csv"
-        glob_results = s3fs.S3FileSystem(anon=False) \
+        glob_results = s3fs.S3FileSystem(anon=True) \
             .glob("infectious-disease-data/data-raw/influenza-hhs/hhs-????-??-??.csv")
         all_file_paths = sorted([f[len("infectious-disease-data/data-raw/"):] for f in glob_results])
         all_file_paths = [f for f in all_file_paths if f <= as_of_file_path]
