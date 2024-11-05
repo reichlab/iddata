@@ -9,17 +9,17 @@ def test_load_data_sources():
     fdl = FluDataLoader()
     
     sources_options = [
-        ["hhs"],
-        ["hhs", "ilinet"],
+        ["nhsn"],
+        ["nhsn", "ilinet"],
         ["flusurvnet"],
-        ["flusurvnet", "hhs", "ilinet"]
+        ["flusurvnet", "nhsn", "ilinet"]
     ]
     for sources in sources_options:
         df = fdl.load_data(sources=sources)
         assert set(df["source"].unique()) == set(sources)
     
     df = fdl.load_data()
-    assert set(df["source"].unique()) == {"flusurvnet", "hhs", "ilinet"}
+    assert set(df["source"].unique()) == {"flusurvnet", "nhsn", "ilinet"}
 
 
 @pytest.mark.parametrize("test_kwargs, season_expected, wk_end_date_expected", [
@@ -28,10 +28,10 @@ def test_load_data_sources():
     ({"drop_pandemic_seasons": True, "as_of": datetime.date.fromisoformat("2023-12-30")},
         "2022/23", "2023-12-23")
 ])
-def test_load_data_hhs_kwargs(test_kwargs, season_expected, wk_end_date_expected):
+def test_load_data_nhsn_kwargs(test_kwargs, season_expected, wk_end_date_expected):
     fdl = FluDataLoader()
     
-    df = fdl.load_data(sources=["hhs"], hhs_kwargs=test_kwargs)
+    df = fdl.load_data(sources=["nhsn"], nhsn_kwargs=test_kwargs)
     
     assert df["season"].min() == season_expected
     wk_end_date_actual = str(df["wk_end_date"].max())[:10]
