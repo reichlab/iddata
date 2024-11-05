@@ -302,7 +302,7 @@ class FluDataLoader():
     return dat
 
 
-  def load_hhs(self, rates=True, drop_pandemic_seasons=True, as_of=None):
+  def load_nhsn(self, rates=True, drop_pandemic_seasons=True, as_of=None):
     if drop_pandemic_seasons:
       if as_of is None:
         file_path = "influenza-hhs/hhs.csv"
@@ -316,7 +316,7 @@ class FluDataLoader():
         file_path = all_file_paths[-1]
     else:
       if as_of is not None:
-        raise NotImplementedError("Functionality for loading all seasons of HHS data with specified as_of date is not implemented.")
+        raise NotImplementedError("Functionality for loading all seasons of NHSN data with specified as_of date is not implemented.")
       file_path = "influenza-hhs/hhs_complete.csv"
     
     dat = pd.read_csv(self._construct_data_raw_url(file_path))
@@ -336,7 +336,7 @@ class FluDataLoader():
     
     dat["agg_level"] = np.where(dat["location"] == "US", "national", "state")
     dat = dat[["agg_level", "location", "season", "season_week", "wk_end_date", "inc"]]
-    dat["source"] = "hhs"
+    dat["source"] = "nhsn"
     return dat
 
 
@@ -413,7 +413,7 @@ class FluDataLoader():
     return df_flusurv
 
 
-  def load_data(self, sources=None, flusurvnet_kwargs=None, hhs_kwargs=None, ilinet_kwargs=None,
+  def load_data(self, sources=None, flusurvnet_kwargs=None, nhsn_kwargs=None, ilinet_kwargs=None,
                 power_transform="4rt"):
     """
     Load influenza data and transform to a scale suitable for input to models.
@@ -421,10 +421,10 @@ class FluDataLoader():
     Parameters
     ----------
     sources: None or list of sources
-        data sources to collect. Defaults to ['flusurvnet', 'hhs', 'ilinet'].
+        data sources to collect. Defaults to ['flusurvnet', 'nhsn', 'ilinet'].
         If provided as a list, must be a subset of the defaults.
     flusurvnet_kwargs: dictionary of keyword arguments to pass on to `load_flusurv_rates`
-    hhs_kwargs: dictionary of keyword arguments to pass on to `load_hhs`
+    nhsn_kwargs: dictionary of keyword arguments to pass on to `load_nhsn`
     ilinet_kwargs: dictionary of keyword arguments to pass on to `load_ilinet`
     power_transform: string specifying power transform to use: '4rt' or `None`
 
@@ -433,13 +433,13 @@ class FluDataLoader():
     Pandas DataFrame
     """
     if sources is None:
-        sources = ["flusurvnet", "hhs", "ilinet"]
+        sources = ["flusurvnet", "nhsn", "ilinet"]
     
     if flusurvnet_kwargs is None:
         flusurvnet_kwargs = {}
     
-    if hhs_kwargs is None:
-        hhs_kwargs = {}
+    if nhsn_kwargs is None:
+        nhsn_kwargs = {}
     
     if ilinet_kwargs is None:
         ilinet_kwargs = {}
@@ -450,11 +450,11 @@ class FluDataLoader():
     us_census = self.load_us_census()
     fips_mappings = pd.read_csv(self._construct_data_raw_url("fips-mappings/fips_mappings.csv"))
     
-    if "hhs" in sources:
-        df_hhs = self.load_hhs(**hhs_kwargs)
-        df_hhs["inc"] = df_hhs["inc"] + 0.75**4
+    if "nhsn" in sources:
+        df_nhsn = self.load_nhsn(**nhsn_kwargs)
+        df_nhsn["inc"] = df_nhsn["inc"] + 0.75**4
     else:
-        df_hhs = None
+        df_nhsn = None
     
     if "ilinet" in sources:
         df_ilinet = self.load_agg_transform_ilinet(fips_mappings=fips_mappings, **ilinet_kwargs)
@@ -467,7 +467,7 @@ class FluDataLoader():
         df_flusurv = None
     
     df = pd.concat(
-        [df_hhs, df_ilinet, df_flusurv],
+        [df_nhsn, df_ilinet, df_flusurv],
         axis=0).sort_values(["source", "location", "wk_end_date"])
     
     # log population
