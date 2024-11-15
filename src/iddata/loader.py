@@ -310,7 +310,7 @@ class FluDataLoader():
     if as_of is None:
       as_of = datetime.date.today()
     
-    if type(as_of) == str:
+    if isinstance(as_of, str):
       as_of = datetime.date.fromisoformat(as_of)
 
     if as_of < datetime.date.fromisoformat("2024-11-15"):
