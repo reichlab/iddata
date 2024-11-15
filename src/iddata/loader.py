@@ -1,7 +1,7 @@
+import datetime
 from itertools import product
 from urllib.parse import urljoin
 
-import datetime
 import numpy as np
 import pandas as pd
 import pymmwr
@@ -310,7 +310,7 @@ class FluDataLoader():
     if as_of is None:
       as_of = datetime.date.today().isoformat()
 
-    if as_of < '2024-11-15':
+    if as_of < "2024-11-15":
       return self.load_nhsn_from_hhs(rates=rates, as_of=as_of)
     else:
       return self.load_nhsn_from_nhsn(rates=rates, as_of=as_of)
@@ -357,8 +357,8 @@ class FluDataLoader():
     
     dat = pd.read_csv(self._construct_data_raw_url(file_path))
     # Keeping Percent Hospitals Reporting field for now in case it's useful later.
-    dat = dat[['Geographic aggregation', 'Week Ending Date', 'Total Influenza Admissions', 'Percent Hospitals Reporting Influenza Admissions']]
-    dat.columns = ['abbreviation', 'wk_end_date', 'inc', 'pct_report']
+    dat = dat[["Geographic aggregation", "Week Ending Date", "Total Influenza Admissions", "Percent Hospitals Reporting Influenza Admissions"]]
+    dat.columns = ["abbreviation", "wk_end_date", "inc", "pct_report"]
     fips_mappings = self.load_fips_mappings()
     dat = dat.merge(fips_mappings, on=["abbreviation"], how="left")
     
