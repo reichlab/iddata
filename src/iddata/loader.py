@@ -308,12 +308,19 @@ class FluDataLoader():
       raise NotImplementedError("Functionality for loading all seasons of NHSN data with specified as_of date is not implemented.")
     
     if as_of is None:
-      as_of = datetime.date.today().isoformat()
+      as_of = datetime.date.today()
+    
+    if type(as_of) == str:
+      as_of = datetime.date.fromisoformat(as_of)
 
-    if as_of < "2024-11-15":
+    if as_of < datetime.date.fromisoformat("2024-11-15"):
       return self.load_nhsn_from_hhs(rates=rates, as_of=as_of)
     else:
-      return self.load_nhsn_from_nhsn(rates=rates, as_of=as_of)
+      return self.load_nhsn_from_nhsn(
+        rates=rates,
+        as_of=as_of,
+        drop_pandemic_seasons=drop_pandemic_seasons
+      )
 
 
   def load_nhsn_from_hhs(self, rates=True, as_of=None):
@@ -346,7 +353,7 @@ class FluDataLoader():
     return dat
 
 
-  def load_nhsn_from_nhsn(self, rates=True, as_of=None):
+  def load_nhsn_from_nhsn(self, rates=True, as_of=None, drop_pandemic_seasons=True):
     # find the largest stored file dated on or before the as_of date
     as_of_file_path = f"influenza-nhsn/nhsn-{str(as_of)}.csv"
     glob_results = s3fs.S3FileSystem(anon=True) \
@@ -359,6 +366,19 @@ class FluDataLoader():
     # Keeping Percent Hospitals Reporting field for now in case it's useful later.
     dat = dat[["Geographic aggregation", "Week Ending Date", "Total Influenza Admissions", "Percent Hospitals Reporting Influenza Admissions"]]
     dat.columns = ["abbreviation", "wk_end_date", "inc", "pct_report"]
+    
+    # add us data
+    us_dat = (
+        dat
+        .groupby("wk_end_date")
+        ["inc"]
+        .sum()
+        .reset_index()
+    )
+    us_dat["abbreviation"] = "US"
+    dat = pd.concat([dat, us_dat], axis=0)
+    
+    # get to location codes/FIPS
     fips_mappings = self.load_fips_mappings()
     dat = dat.merge(fips_mappings, on=["abbreviation"], how="left")
     
@@ -366,6 +386,9 @@ class FluDataLoader():
     dat["season"] = utils.convert_epiweek_to_season(ew_str)
     dat["season_week"] = utils.convert_epiweek_to_season_week(ew_str)
     dat = dat.sort_values(by=["season", "season_week"])
+
+    if drop_pandemic_seasons:
+      dat.loc[dat["season"].isin(["2020/21", "2021/22"]), "inc"] = np.nan
     
     if rates:
       pops = self.load_us_census()
