@@ -363,9 +363,8 @@ class FluDataLoader():
     file_path = all_file_paths[-1]
     
     dat = pd.read_csv(self._construct_data_raw_url(file_path))
-    # Keeping Percent Hospitals Reporting field for now in case it's useful later.
-    dat = dat[["Geographic aggregation", "Week Ending Date", "Total Influenza Admissions", "Percent Hospitals Reporting Influenza Admissions"]]
-    dat.columns = ["abbreviation", "wk_end_date", "inc", "pct_report"]
+    dat = dat[["Geographic aggregation", "Week Ending Date", "Total Influenza Admissions"]]
+    dat.columns = ["abbreviation", "wk_end_date", "inc"]
     
     # rename USA to US
     dat.loc[dat.abbreviation == "USA", "abbreviation"] = "US"
