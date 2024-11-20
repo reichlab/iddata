@@ -10,7 +10,7 @@ import s3fs
 from iddata import utils
 
 
-class FluDataLoader():
+class DiseaseDataLoader():
   def __init__(self) -> None:
     self.data_raw = "https://infectious-disease-data.s3.amazonaws.com/data-raw/"
 
@@ -303,7 +303,7 @@ class FluDataLoader():
     return dat
 
 
-  def load_nhsn(self, rates=True, drop_pandemic_seasons=True, as_of=None):
+  def load_nhsn(self, pathogens=["flu", "covid"], rates=True, drop_pandemic_seasons=True, as_of=None):
     if not drop_pandemic_seasons:
       raise NotImplementedError("Functionality for loading all seasons of NHSN data with specified as_of date is not implemented.")
     
