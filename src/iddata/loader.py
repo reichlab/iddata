@@ -367,16 +367,8 @@ class FluDataLoader():
     dat = dat[["Geographic aggregation", "Week Ending Date", "Total Influenza Admissions", "Percent Hospitals Reporting Influenza Admissions"]]
     dat.columns = ["abbreviation", "wk_end_date", "inc", "pct_report"]
     
-    # add us data
-    us_dat = (
-        dat
-        .groupby("wk_end_date")
-        ["inc"]
-        .sum()
-        .reset_index()
-    )
-    us_dat["abbreviation"] = "US"
-    dat = pd.concat([dat, us_dat], axis=0)
+    # rename USA to US
+    dat.loc[dat.abbreviation == "USA", "abbreviation"] = "US"
     
     # get to location codes/FIPS
     fips_mappings = self.load_fips_mappings()
