@@ -314,8 +314,8 @@ class DiseaseDataLoader():
       if not drop_pandemic_seasons:
         raise NotImplementedError("Functionality for loading all seasons of NHSN data with specified as_of date is not implemented.")
       
-      if len(disease) > 1 or disease != "flu":
-        raise NotImplementedError("When loading NHSN data with an as_of date prior to 2024-11-15, only disease='flu' is supported.")
+      if disease != "flu":
+        raise NotImplementedError(f"When loading NHSN data with an as_of date prior to 2024-11-15, only disease='flu' is supported; got {str(disease)}.")
       return self.load_nhsn_from_hhs(rates=rates, as_of=as_of)
     else:
       return self.load_nhsn_from_nhsn(
