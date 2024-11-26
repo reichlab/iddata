@@ -10,7 +10,7 @@ import s3fs
 from iddata import utils
 
 
-class FluDataLoader():
+class DiseaseDataLoader():
   def __init__(self) -> None:
     self.data_raw = "https://infectious-disease-data.s3.amazonaws.com/data-raw/"
 
@@ -303,10 +303,7 @@ class FluDataLoader():
     return dat
 
 
-  def load_nhsn(self, rates=True, drop_pandemic_seasons=True, as_of=None):
-    if not drop_pandemic_seasons:
-      raise NotImplementedError("Functionality for loading all seasons of NHSN data with specified as_of date is not implemented.")
-    
+  def load_nhsn(self, disease="flu", rates=True, drop_pandemic_seasons=True, as_of=None):
     if as_of is None:
       as_of = datetime.date.today()
     
@@ -314,9 +311,15 @@ class FluDataLoader():
       as_of = datetime.date.fromisoformat(as_of)
 
     if as_of < datetime.date.fromisoformat("2024-11-15"):
+      if not drop_pandemic_seasons:
+        raise NotImplementedError("Functionality for loading all seasons of NHSN data with specified as_of date is not implemented.")
+      
+      if disease != "flu":
+        raise NotImplementedError(f"When loading NHSN data with an as_of date prior to 2024-11-15, only disease='flu' is supported; got {str(disease)}.")
       return self.load_nhsn_from_hhs(rates=rates, as_of=as_of)
     else:
       return self.load_nhsn_from_nhsn(
+        disease=disease,
         rates=rates,
         as_of=as_of,
         drop_pandemic_seasons=drop_pandemic_seasons
@@ -353,7 +356,11 @@ class FluDataLoader():
     return dat
 
 
-  def load_nhsn_from_nhsn(self, rates=True, as_of=None, drop_pandemic_seasons=True):
+  def load_nhsn_from_nhsn(self, disease="flu", rates=True, as_of=None, drop_pandemic_seasons=True):
+    valid_diseases = ["flu", "covid"]
+    if disease not in valid_diseases:
+        raise ValueError("For NHSN data, the only supported diseases are 'flu' and 'covid'.")
+    
     # find the largest stored file dated on or before the as_of date
     as_of_file_path = f"influenza-nhsn/nhsn-{str(as_of)}.csv"
     glob_results = s3fs.S3FileSystem(anon=True) \
@@ -363,7 +370,11 @@ class FluDataLoader():
     file_path = all_file_paths[-1]
     
     dat = pd.read_csv(self._construct_data_raw_url(file_path))
-    dat = dat[["Geographic aggregation", "Week Ending Date", "Total Influenza Admissions"]]
+    if disease == "flu":
+        inc_colname = "Total Influenza Admissions"
+    elif disease == "covid":
+        inc_colname = "Total COVID-19 Admissions"
+    dat = dat[["Geographic aggregation", "Week Ending Date"] + [inc_colname]]
     dat.columns = ["abbreviation", "wk_end_date", "inc"]
     
     # rename USA to US

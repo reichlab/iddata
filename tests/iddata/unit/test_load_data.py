@@ -2,11 +2,11 @@ import datetime
 
 import numpy as np
 import pytest
-from iddata.loader import FluDataLoader
+from iddata.loader import DiseaseDataLoader
 
 
 def test_load_data_sources():
-    fdl = FluDataLoader()
+    fdl = DiseaseDataLoader()
     
     sources_options = [
         ["nhsn"],
@@ -29,7 +29,7 @@ def test_load_data_sources():
         "2022/23", "2023-12-23")
 ])
 def test_load_data_nhsn_kwargs(test_kwargs, season_expected, wk_end_date_expected):
-    fdl = FluDataLoader()
+    fdl = DiseaseDataLoader()
     
     df = fdl.load_data(sources=["nhsn"], nhsn_kwargs=test_kwargs)
     
@@ -47,7 +47,7 @@ def test_load_data_nhsn_kwargs(test_kwargs, season_expected, wk_end_date_expecte
     ({"drop_pandemic_seasons": True}, True)
 ])
 def test_load_data_ilinet_kwargs(test_kwargs, expect_all_na):
-    fdl = FluDataLoader()
+    fdl = DiseaseDataLoader()
     
     df = fdl.load_data(sources=["ilinet"], ilinet_kwargs=test_kwargs)
     
@@ -63,7 +63,7 @@ def test_load_data_ilinet_kwargs(test_kwargs, expect_all_na):
     ({"locations": ["California", "Colorado", "Connecticut"]})
 ])
 def test_load_data_flusurvnet_kwargs(test_kwargs):
-    fdl = FluDataLoader()
+    fdl = DiseaseDataLoader()
     
     #flusurv_kwargs
     df = fdl.load_data(sources=["flusurvnet"], flusurvnet_kwargs=test_kwargs)
