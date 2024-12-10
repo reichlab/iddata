@@ -35,14 +35,14 @@ jobs:
         env:
           FILE_NAME: ${{ env.FILE_NAME }}
 
-    - name: Configure AWS credentials
-      # request credentials to assume the hub's AWS role via OpenID Connect
-      if: env.CLOUD_ENABLED == 'true'
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT }}:role/iddata-github-action 
-        aws-region: us-east-1
+      - name: Configure AWS credentials
+        # request credentials to assume the hub's AWS role via OpenID Connect
+        if: env.CLOUD_ENABLED == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT }}:role/iddata-github-action 
+          aws-region: us-east-1
 
-    - name: Copy files to cloud storage
-      run: |
-        aws s3 cp "./$FILE_NAME" "s3://infectious-disease-data/data-raw/influenza-nhsn" --dryrun
+      - name: Copy files to cloud storage
+        run: |
+          aws s3 cp "./$FILE_NAME" "s3://infectious-disease-data/data-raw/influenza-nhsn" --dryrun
