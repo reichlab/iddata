@@ -2,7 +2,7 @@ name: Snapshot NHSN data and upload to S3
 
 on:
   schedule:
-    - cron: "45 12 * * 3" # every Wednesday at 5:45PM UTC == 12:45PM EST
+    - cron: "45 5 * * 3" # every Wednesday at 5:45PM UTC == 12:45PM EST
   workflow_dispatch:
 
 env:
