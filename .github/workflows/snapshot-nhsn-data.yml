@@ -30,7 +30,7 @@ jobs:
 
       - name: Snapshot NHSN data
         run: Rscript -e "nhsn_data <- RSocrata::read.socrata('https://data.cdc.gov/resource/mpgq-jmmr.csv'); 
-                         write.csv(nhsn_data, file = $FILE_NAME, row.names = FALSE)"
+                         write.csv(nhsn_data, file = '$FILE_NAME', row.names = FALSE)"
         env:
           FILE_NAME: ${{ env.FILE_NAME }}
 
