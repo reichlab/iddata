@@ -24,7 +24,7 @@ jobs:
       - name: install R packages
         run: |
           Rscript -e "install.packages('remotes')"
-          Rscript -e "remotes::install_github('Chicago/RSocrata@v1.7.11')"
+          Rscript -e "remotes::install_github('Chicago/RSocrata', ref='v.1.7.11')"
       
       - name: Get file name
         run: echo "FILE_NAME=nhsn-$(date +'%Y-%m-%d').csv" >> $GITHUB_ENV
