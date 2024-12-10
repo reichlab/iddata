@@ -44,4 +44,4 @@ jobs:
 
       - name: Copy files to cloud storage
         run: |
-          aws s3 cp "./$FILE_NAME" "s3://infectious-disease-data/data-raw/influenza-nhsn" --dryrun
+          aws s3 cp "./$FILE_NAME" "s3://infectious-disease-data/data-raw/influenza-nhsn"
