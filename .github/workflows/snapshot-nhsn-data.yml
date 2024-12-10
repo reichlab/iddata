@@ -9,6 +9,11 @@ env:
   # Reich lab AWS account number
   AWS_ACCOUNT: 312560106906
 
+permissions:
+  contents: read
+  # id-token write required for AWS auth
+  id-token: write
+
 jobs:
   snapshot-nhsn-data:
     runs-on: ubuntu-latest
