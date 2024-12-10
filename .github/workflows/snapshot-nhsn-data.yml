@@ -26,18 +26,23 @@ jobs:
           Rscript -e "install.packages('remotes')"
           Rscript -e "remotes::install_github('Chicago/RSocrata@v1.7.11')"
       
+      - name: Get file name
+        run: echo "FILE_NAME=nhsn-$(date +'%Y-%m-%d').csv" >> $GITHUB_ENV
+
       - name: Snapshot NHSN data
         run: Rscript -e "nhsn_data <- RSocrata::read.socrata('https://data.cdc.gov/resource/mpgq-jmmr.csv'); 
-                         write.csv(nhsn_data, paste0('nhsn-', Sys.Date(), '.csv'))"
-      
-      - name: Install rclone
-        run: |
-          curl https://rclone.org/install.sh | sudo bash
-          rclone version
-      
-      - name: Copy to cloud storage
-        # copy the created file to S3
-        run: |
-          rclone copy ./data/ ":s3,provider=AWS,env_auth:infectious-disease-data/data-raw/influenza-nhsn" \
-            --checksum --verbose --stats-one-line --config=/dev/null
-        shell: bash
+                         write.csv(nhsn_data, file = $FILE_NAME, row.names = FALSE)"
+        env:
+          FILE_NAME: ${{ env.FILE_NAME }}
+
+    - name: Configure AWS credentials
+      # request credentials to assume the hub's AWS role via OpenID Connect
+      if: env.CLOUD_ENABLED == 'true'
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT }}:role/iddata-github-action 
+        aws-region: us-east-1
+
+    - name: Copy files to cloud storage
+      run: |
+        aws s3 cp "./$FILE_NAME" "s3://infectious-disease-data/data-raw/influenza-nhsn" --dryrun
