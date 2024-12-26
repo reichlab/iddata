@@ -34,10 +34,10 @@ jobs:
         run: echo "FILE_NAME=nhsn-$(date +'%Y-%m-%d').csv" >> $GITHUB_ENV
 
       - name: Snapshot NHSN data
-        run: Rscript -e "nhsn_data <- RSocrata::read.socrata('https://data.cdc.gov/resource/mpgq-jmmr.csv');
-                         nhsn_data <- nhsn_data[c('jurisdiction', 'weekendingdate', 'totalconfflunewadm', 'totalconfc19newadm')];
-                         nhsn_data$weekendingdate <- substr(nhsn_data$weekendingdate, 1, 10);
-                         colnames(nhsn_data) <- c('Geographic aggregation', 'Week Ending Date', 'Total Influenza Admissions', 'Total COVID-19 Admissions');
+        run: Rscript -e "nhsn_data <- RSocrata::read.socrata('https://data.cdc.gov/resource/mpgq-jmmr.csv'); print(nhsn_data);
+                         nhsn_data <- nhsn_data[c('jurisdiction', 'weekendingdate', 'totalconfflunewadm', 'totalconfc19newadm')]; print(nhsn_data);
+                         nhsn_data$weekendingdate <- substr(nhsn_data$weekendingdate, 1, 10); print(nhsn_data);
+                         colnames(nhsn_data) <- c('Geographic aggregation', 'Week Ending Date', 'Total Influenza Admissions', 'Total COVID-19 Admissions'); print(nhsn_data);
                          write.csv(nhsn_data, file = '$FILE_NAME', row.names = FALSE)"
         env:
           FILE_NAME: ${{ env.FILE_NAME }}
