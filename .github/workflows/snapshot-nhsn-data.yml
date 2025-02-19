@@ -28,7 +28,7 @@ jobs:
 
       - name: install ubuntu requirements
         run: |
-          apt-get install -y --no-install-recommends libcurl4-openssl-dev
+          sudo apt-get install -y --no-install-recommends libcurl4-openssl-dev
 
       - name: install R packages
         run: |
