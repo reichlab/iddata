@@ -24,7 +24,9 @@ jobs:
           r-version: 4.4.1
           install-r: true
           use-public-rspm: true
-          extra-repositories: 'https://hubverse-org.r-universe.dev'
+          extra-repositories: 
+            - 'https://hubverse-org.r-universe.dev'
+            - 'https://chicago.r-universe.dev/'
 
       - name: install ubuntu requirements
         run: |
