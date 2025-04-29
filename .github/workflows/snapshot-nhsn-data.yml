@@ -1,6 +1,8 @@
 name: Snapshot NHSN data and upload to S3
 
 on:
+  pull_request:
+    branches: 'main'
   schedule:
     - cron: "45 17 * * 3" # every Wednesday at 5:45PM UTC == 12:45PM EST
   workflow_dispatch:
@@ -32,7 +34,7 @@ jobs:
 
       - name: install R packages
         run: |
-          Rscript -e "install.packages('RSocrata')"
+          Rscript -e "install.packages('RSocrata', repos = c('https://chicago.r-universe.dev/', getOption('repos')))"
       
       - name: Get file name
         run: echo "FILE_NAME=nhsn-$(date +'%Y-%m-%d').csv" >> $GITHUB_ENV
@@ -54,5 +56,6 @@ jobs:
           aws-region: us-east-1
 
       - name: Copy files to cloud storage
+        if: github.event_name != 'pull_request'
         run: |
           aws s3 cp "./$FILE_NAME" "s3://infectious-disease-data/data-raw/influenza-nhsn/$FILE_NAME"
