@@ -10,6 +10,8 @@ on:
 env:
   # Reich lab AWS account number
   AWS_ACCOUNT: 312560106906
+  # GitHub credentials
+  GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
 
 permissions:
   contents: read
@@ -34,7 +36,8 @@ jobs:
 
       - name: install R packages
         run: |
-          Rscript -e "install.packages('RSocrata', repos = c('https://chicago.r-universe.dev/', getOption('repos')))"
+          Rscript -e "install.packages('remotes');
+                      remotes::install_github('Chicago/RSocrata')"
       
       - name: Get file name
         run: echo "FILE_NAME=nhsn-$(date +'%Y-%m-%d').csv" >> $GITHUB_ENV
