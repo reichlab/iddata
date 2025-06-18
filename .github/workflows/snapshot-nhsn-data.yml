@@ -10,6 +10,8 @@ on:
 env:
   # Reich lab AWS account number
   AWS_ACCOUNT: 312560106906
+  # GitHub credentials
+  GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
 
 permissions:
   contents: read
