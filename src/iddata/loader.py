@@ -129,7 +129,7 @@ class DiseaseDataLoader():
     
     if fillna:
       all_locations = dat["location"].unique()
-      all_seasons = [str(y) + "/" + str(y+1)[-2:] for y in range(1997, 2025)]
+      all_seasons = [str(y) + "/" + str(y+1)[-2:] for y in range(1997, 2026)]
       full_result = pd.DataFrame.from_records(product(all_locations, all_seasons))
       full_result.columns = ["location", "season"]
       dat = full_result.merge(dat, how="left", on=["location", "season"]) \
