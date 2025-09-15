@@ -327,7 +327,7 @@ class DiseaseDataLoader():
 
 
   def load_nhsn_from_hhs(self, rates=True, as_of=None):
-    # find the largest stored file dated on or before the as_of date
+    # find the most recent stored file dated on or before the as_of date
     as_of_file_path = f"influenza-hhs/hhs-{str(as_of)}.csv"
     glob_results = s3fs.S3FileSystem(anon=True) \
         .glob("infectious-disease-data/data-raw/influenza-hhs/hhs-????-??-??.csv")
@@ -361,7 +361,7 @@ class DiseaseDataLoader():
     if disease not in valid_diseases:
         raise ValueError("For NHSN data, the only supported diseases are 'flu' and 'covid'.")
     
-    # find the largest stored file dated on or before the as_of date
+    # find the most recent stored file dated on or before the as_of date
     as_of_file_path = f"influenza-nhsn/nhsn-{str(as_of)}.csv"
     glob_results = s3fs.S3FileSystem(anon=True) \
         .glob("infectious-disease-data/data-raw/influenza-nhsn/nhsn-????-??-??.csv")
@@ -403,6 +403,90 @@ class DiseaseDataLoader():
     dat = dat[["agg_level", "location", "season", "season_week", "wk_end_date", "inc"]]
     dat["source"] = "nhsn"
     return dat
+
+  def load_nssp(self, disease="flu", drop_pandemic_seasons=True, as_of=None):
+    ## check disease is one of "flu", "covid" or "rsv"
+    valid_diseases = ["flu", "covid", "rsv"]
+    if disease not in valid_diseases:
+        raise ValueError("For NSSP data, the only supported diseases are 'flu', 'covid' and 'rsv'.")
+    
+    if as_of is None:
+      as_of = datetime.date.today()
+    
+    if isinstance(as_of, str):
+      as_of = datetime.date.fromisoformat(as_of)
+
+    ## for now, only support loading NSSP data from CDC for as_of dates on or after 2025-09-17
+    if as_of < datetime.date.fromisoformat("2025-09-17"):
+      raise NotImplementedError("Functionality for loading NSSP data with specified as_of date is not implemented.")
+    else:
+      return self.load_nssp_from_cdc(
+        disease=disease,
+        as_of=as_of,
+        drop_pandemic_seasons=drop_pandemic_seasons
+      )
+
+  def load_nssp_from_cdc(self, disease="flu", as_of=None, drop_pandemic_seasons=True):
+    valid_diseases = ["flu", "covid", "rsv"]
+    if disease not in valid_diseases:
+        raise ValueError("For NHSN data, the only supported diseases are 'flu' and 'covid'.")
+    
+    # find the most recent stored file dated on or before the as_of date
+    as_of_file_path = f"nssp/nssp-{str(as_of)}.csv"
+    glob_results = s3fs.S3FileSystem(anon=True) \
+        .glob("infectious-disease-data/data-raw/nssp/nssp-????-??-??.csv")
+    all_file_paths = sorted([f[len("infectious-disease-data/data-raw/"):] for f in glob_results])
+    all_file_paths = [f for f in all_file_paths if f <= as_of_file_path]
+    file_path = all_file_paths[-1]
+    
+    dat = pd.read_csv(self._construct_data_raw_url(file_path))
+    if disease == "flu":
+        inc_colname = "percent_visits_influenza"
+    elif disease == "covid":
+        inc_colname = "percent_visits_covid"
+    elif disease == "rsv":
+        inc_colname = "percent_visits_rsv"
+    
+    ## filter, for each hsa_nci_id to include one fips value
+    ## following two lines of code are from genAI
+    dat = dat.sort_values(by=["fips", "hsa_nci_id", "week_end"], ascending=[True, True, False])
+    dat = dat.drop_duplicates(subset=["hsa_nci_id"], keep="first")
+
+    ## keep hsa_nci_id as this is the location code we will be indexing on
+    dat = dat[["hsa_nci_id", "week_end"] + [inc_colname]]
+    ## are these specific column names required for downstream processing in idmodels?
+    ## currently, the below are the same as in load_nhsn_from_nhsn
+    dat.columns = ["abbreviation", "wk_end_date", "inc"]
+    
+    ## NGR: stopped here.
+
+    # rename USA to US
+    dat.loc[dat.abbreviation == "USA", "abbreviation"] = "US"
+    
+    # get to location codes/FIPS
+    fips_mappings = self.load_fips_mappings()
+    dat = dat.merge(fips_mappings, on=["abbreviation"], how="left")
+    
+    ew_str = dat.apply(utils.date_to_ew_str, axis=1)
+    dat["season"] = utils.convert_epiweek_to_season(ew_str)
+    dat["season_week"] = utils.convert_epiweek_to_season_week(ew_str)
+    dat = dat.sort_values(by=["season", "season_week"])
+
+    if drop_pandemic_seasons:
+      dat.loc[dat["season"].isin(["2020/21", "2021/22"]), "inc"] = np.nan
+    
+    if rates:
+      pops = self.load_us_census()
+      dat = dat.merge(pops, on = ["location", "season"], how="left") \
+        .assign(inc=lambda x: x["inc"] / x["pop"] * 100000)
+
+    dat["wk_end_date"] = pd.to_datetime(dat["wk_end_date"])
+    
+    dat["agg_level"] = np.where(dat["location"] == "US", "national", "state")
+    dat = dat[["agg_level", "location", "season", "season_week", "wk_end_date", "inc"]]
+    dat["source"] = "nhsn"
+    return dat
+
 
   def load_agg_transform_ilinet(self, fips_mappings, **ilinet_kwargs):
     df_ilinet_full = self.load_ilinet(**ilinet_kwargs)
