@@ -50,7 +50,7 @@ jobs:
         run: Rscript -e "nssp_data <- RSocrata::read.socrata('https://data.cdc.gov/resource/rdmq-nq56.csv');
                          nssp_data <- nssp_data[c('week_end', 'geography', 'county', 'fips', 'hsa_nci_id', 'percent_visits_covid', 'percent_visits_influenza', 'percent_visits_rsv')];
                          nssp_data[['week_end']] <- substr(nssp_data[['week_end']], 1, 10);
-                         nssp_data[['fips']] <- sprintf("%05d", nssp_data[['fips']]);
+                         nssp_data[['fips']] <- sprintf('%05d', nssp_data[['fips']]);
                          write.csv(nssp_data, file = '$FILE_NAME', row.names = FALSE)"
         env:
           FILE_NAME: ${{ env.FILE_NAME }}
