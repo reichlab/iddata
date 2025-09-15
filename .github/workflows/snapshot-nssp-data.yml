@@ -1,0 +1,68 @@
+name: Snapshot NSSP data and upload to S3
+
+on:
+  pull_request:
+    branches: 'main'
+  schedule:
+    - cron: "45 17 * * 3" # every Wednesday at 5:45PM UTC == 12:45PM EST
+  workflow_dispatch:
+
+env:
+  # Reich lab AWS account number
+  AWS_ACCOUNT: 312560106906
+  # GitHub credentials
+  GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+
+permissions:
+  contents: read
+  # id-token write required for AWS auth
+  id-token: write
+
+jobs:
+  snapshot-nssp-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up R 📊
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: 4.4.1
+          install-r: true
+          use-public-rspm: true
+          extra-repositories: 'https://hubverse-org.r-universe.dev'
+
+      - name: install ubuntu requirements
+        run: |
+          sudo apt-get install -y --no-install-recommends libcurl4-openssl-dev
+
+      - name: install R packages
+        run: |
+          Rscript -e "install.packages('remotes');
+                      remotes::install_github('Chicago/RSocrata')"
+
+      - name: Get file name
+        run: echo "FILE_NAME=nssp-$(date +'%Y-%m-%d').csv" >> $GITHUB_ENV
+
+      - name: Snapshot NSSP data
+        # download and process file
+        # some columns removed
+        # remove timezone letters from week_end
+        # add back leading zeroes to fips codes to make sure all are length 5
+        run: Rscript -e "nssp_data <- RSocrata::read.socrata('https://data.cdc.gov/resource/rdmq-nq56.csv');
+                         nssp_data <- nssp_data[c('week_end', 'geography', 'county', 'fips', 'hsa_nci_id', 'percent_visits_covid', 'percent_visits_influenza', 'percent_visits_rsv')];
+                         nssp_data[['week_end']] <- substr(nssp_data[['week_end']], 1, 10);
+                         nssp_data[['fips']] <- sprintf("%05d", nssp_data[['fips']]);
+                         write.csv(nssp_data, file = '$FILE_NAME', row.names = FALSE)"
+        env:
+          FILE_NAME: ${{ env.FILE_NAME }}
+
+      - name: Configure AWS credentials
+        # request credentials to assume the hub's AWS role via OpenID Connect
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT }}:role/iddata-github-action
+          aws-region: us-east-1
+
+      - name: Copy files to cloud storage
+        if: github.event_name != 'pull_request'
+        run: |
+          aws s3 cp "./$FILE_NAME" "s3://infectious-disease-data/data-raw/nssp/$FILE_NAME"
