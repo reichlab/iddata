@@ -553,6 +553,34 @@ class DiseaseDataLoader():
     return df_flusurv
 
 
+  def load_agg_transform_nssp(self, **nssp_kwargs):
+    df_nssp_by_site = self.load_nssp(**nssp_kwargs)
+    
+    # pull out already-aggregated locations
+    df_nssp_alr_agg = df_nssp_by_site \
+      .loc[df_nssp_by_site["location"] == "All"] \
+      .drop(columns = ["location"]) \
+      .rename(columns = {"fips_code": "location"})
+    alr_agg_loc = df_nssp_alr_agg["location"].unique()
+    # aggregate other nssp sites to state level,
+    # mainly to facilitate adding populations
+    df_nssp_by_state = df_nssp_by_site \
+      .loc[~df_nssp_by_site["fips_code"].isin(alr_agg_loc)] \
+      .drop(columns = ["location"]) \
+      .rename(columns = {"fips_code": "location"}) \
+      .groupby(["location", "season", "season_week", "wk_end_date", "source"]) \
+      .apply(lambda x: pd.DataFrame({"inc": [np.mean(x["inc"])]})) \
+      .reset_index() \
+      .assign(agg_level = "state")
+    
+    df_nssp = pd.concat(
+      [df_nssp_by_state, df_nssp_alr_agg],
+      join="inner",
+      axis = 0)
+    
+    return df_nssp
+
+
   def load_data(self, sources=None, flusurvnet_kwargs=None, nhsn_kwargs=None, ilinet_kwargs=None,
                 power_transform="4rt"):
     """
