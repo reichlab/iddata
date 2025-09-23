@@ -429,7 +429,7 @@ class DiseaseDataLoader():
   def load_nssp_from_cdc(self, disease="flu", as_of=None, drop_pandemic_seasons=True):
     valid_diseases = ["flu", "covid", "rsv"]
     if disease not in valid_diseases:
-        raise ValueError("For NHSN data, the only supported diseases are 'flu' and 'covid'.")
+        raise ValueError("For NSSP data, the only supported diseases are 'flu', 'covid' and 'rsv'.")
     
     # find the most recent stored file dated on or before the as_of date
     as_of_file_path = f"nssp/nssp-{str(as_of)}.csv"
@@ -453,19 +453,15 @@ class DiseaseDataLoader():
     dat = dat.drop_duplicates(subset=["hsa_nci_id"], keep="first")
 
     ## keep hsa_nci_id as this is the location code we will be indexing on
-    dat = dat[["hsa_nci_id", "week_end"] + [inc_colname]]
+    dat = dat[["geography", "hsa_nci_id", "week_end"] + [inc_colname]]
     ## are these specific column names required for downstream processing in idmodels?
     ## currently, the below are the same as in load_nhsn_from_nhsn
-    dat.columns = ["abbreviation", "wk_end_date", "inc"]
-    
-    ## NGR: stopped here.
-
-    # rename USA to US
-    dat.loc[dat.abbreviation == "USA", "abbreviation"] = "US"
+    dat.columns = ["location_name", "hsa_nci_id", "wk_end_date", "inc"]
     
     # get to location codes/FIPS
     fips_mappings = self.load_fips_mappings()
-    dat = dat.merge(fips_mappings, on=["abbreviation"], how="left")
+    dat = dat.merge(fips_mappings, on=["location_name"], how="left") \
+      .rename(columns = {"location": "fips_code", "hsa_nci_id": "location"})
     
     ew_str = dat.apply(utils.date_to_ew_str, axis=1)
     dat["season"] = utils.convert_epiweek_to_season(ew_str)
@@ -475,16 +471,12 @@ class DiseaseDataLoader():
     if drop_pandemic_seasons:
       dat.loc[dat["season"].isin(["2020/21", "2021/22"]), "inc"] = np.nan
     
-    if rates:
-      pops = self.load_us_census()
-      dat = dat.merge(pops, on = ["location", "season"], how="left") \
-        .assign(inc=lambda x: x["inc"] / x["pop"] * 100000)
-
     dat["wk_end_date"] = pd.to_datetime(dat["wk_end_date"])
     
-    dat["agg_level"] = np.where(dat["location"] == "US", "national", "state")
-    dat = dat[["agg_level", "location", "season", "season_week", "wk_end_date", "inc"]]
-    dat["source"] = "nhsn"
+    dat["agg_level"] = np.where(dat["location"] == "All", "state", "hsa")
+    dat["agg_level"] = np.where(dat["fips_code"] == "US", "national", "hsa")
+    dat = dat[["agg_level", "location", "fips_code", "season", "season_week", "wk_end_date", "inc"]]
+    dat["source"] = "nssp"
     return dat
 
 
