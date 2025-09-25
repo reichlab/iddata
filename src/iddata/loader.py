@@ -581,7 +581,7 @@ class DiseaseDataLoader():
     return df_nssp
 
 
-  def load_data(self, sources=None, flusurvnet_kwargs=None, nhsn_kwargs=None, ilinet_kwargs=None,
+  def load_data(self, sources=None, flusurvnet_kwargs=None, nhsn_kwargs=None, ilinet_kwargs=None, nssp_kwargs=None,
                 power_transform="4rt"):
     """
     Load influenza data and transform to a scale suitable for input to models.
@@ -594,6 +594,7 @@ class DiseaseDataLoader():
     flusurvnet_kwargs: dictionary of keyword arguments to pass on to `load_flusurv_rates`
     nhsn_kwargs: dictionary of keyword arguments to pass on to `load_nhsn`
     ilinet_kwargs: dictionary of keyword arguments to pass on to `load_ilinet`
+    nssp_kwargs: dictionary of keyword arguments to pass on to `load_nssp`
     power_transform: string specifying power transform to use: '4rt' or `None`
 
     Returns
@@ -611,6 +612,9 @@ class DiseaseDataLoader():
     
     if ilinet_kwargs is None:
         ilinet_kwargs = {}
+    
+    if nssp_kwargs is None:
+        nssp_kwargs = {}
     
     if power_transform not in ["4rt", None]:
         raise ValueError('Only None and "4rt" are supported for the power_transform argument.')
@@ -633,9 +637,14 @@ class DiseaseDataLoader():
         df_flusurv = self.load_agg_transform_flusurv(fips_mappings=fips_mappings, **flusurvnet_kwargs)
     else:
         df_flusurv = None
+
+    if "nssp" in sources:
+        df_nssp = self.load_agg_transform_nssp(**nssp_kwargs)
+    else:
+        df_nssp = None
     
     df = pd.concat(
-        [df_nhsn, df_ilinet, df_flusurv],
+        [df_nhsn, df_ilinet, df_flusurv, df_nssp],
         axis=0).sort_values(["source", "location", "wk_end_date"])
     
     # log population
