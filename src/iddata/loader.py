@@ -554,18 +554,18 @@ class DiseaseDataLoader():
 
 
   def load_agg_transform_nssp(self, **nssp_kwargs):
-    df_nssp_by_site = self.load_nssp(**nssp_kwargs)
+    df_nssp_by_hsa = self.load_nssp(**nssp_kwargs)
     
     # pull out already-aggregated locations
-    df_nssp_alr_agg = df_nssp_by_site \
-      .loc[df_nssp_by_site["location"] == "All"] \
+    df_nssp_alr_agg = df_nssp_by_hsa \
+      .loc[df_nssp_by_hsa["location"] == "All"] \
       .drop(columns = ["location"]) \
       .rename(columns = {"fips_code": "location"})
     alr_agg_loc = df_nssp_alr_agg["location"].unique()
-    # aggregate other nssp sites to state level,
+    # aggregate other nssp hsa to state level,
     # mainly to facilitate adding populations
-    df_nssp_by_state = df_nssp_by_site \
-      .loc[~df_nssp_by_site["fips_code"].isin(alr_agg_loc)] \
+    df_nssp_by_state = df_nssp_by_hsa \
+      .loc[~df_nssp_by_hsa["fips_code"].isin(alr_agg_loc)] \
       .drop(columns = ["location"]) \
       .rename(columns = {"fips_code": "location"}) \
       .groupby(["location", "season", "season_week", "wk_end_date", "source"]) \

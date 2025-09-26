@@ -84,7 +84,6 @@ def test_load_data_nssp_kwargs(test_kwargs, season_expected, wk_end_date_expecte
     fdl = DiseaseDataLoader()
 
     df = fdl.load_data(sources=["nssp"], nssp_kwargs=test_kwargs)
-    print(df["season"])
     
     assert df["season"].min() == season_expected
     wk_end_date_actual = str(df["wk_end_date"].max())[:10]
