@@ -454,8 +454,6 @@ class DiseaseDataLoader():
 
     # keep hsa_nci_id as this is the location code we will be indexing on
     dat = dat[["geography", "hsa_nci_id", "week_end"] + [inc_colname]]
-    # are these specific column names required for downstream processing in idmodels?
-    # currently, the below are the same as in load_nhsn_from_nhsn
     dat.columns = ["location_name", "hsa_nci_id", "wk_end_date", "inc"]
     
     # get to location codes/FIPS
