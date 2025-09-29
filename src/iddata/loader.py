@@ -405,7 +405,7 @@ class DiseaseDataLoader():
     return dat
 
   def load_nssp(self, disease="flu", drop_pandemic_seasons=True, as_of=None):
-    ## check disease is one of "flu", "covid" or "rsv"
+    # check disease is one of "flu", "covid" or "rsv"
     valid_diseases = ["flu", "covid", "rsv"]
     if disease not in valid_diseases:
         raise ValueError("For NSSP data, the only supported diseases are 'flu', 'covid' and 'rsv'.")
@@ -416,7 +416,7 @@ class DiseaseDataLoader():
     if isinstance(as_of, str):
       as_of = datetime.date.fromisoformat(as_of)
 
-    ## for now, only support loading NSSP data from CDC for as_of dates on or after 2025-09-17
+    # for now, only support loading NSSP data from CDC for as_of dates on or after 2025-09-17
     if as_of < datetime.date.fromisoformat("2025-09-17"):
       raise NotImplementedError("Functionality for loading NSSP data with specified as_of date is not implemented.")
     else:
@@ -447,15 +447,15 @@ class DiseaseDataLoader():
     elif disease == "rsv":
         inc_colname = "percent_visits_rsv"
     
-    ## filter, for each hsa_nci_id to include one fips value
-    ## following two lines of code are from genAI
+    # filter, for each hsa_nci_id to include one fips value
+    # following two lines of code are from genAI
     dat = dat.sort_values(by=["fips", "hsa_nci_id", "week_end"], ascending=[True, True, False])
     dat = dat.drop_duplicates(subset=["hsa_nci_id"], keep="first")
 
-    ## keep hsa_nci_id as this is the location code we will be indexing on
+    # keep hsa_nci_id as this is the location code we will be indexing on
     dat = dat[["geography", "hsa_nci_id", "week_end"] + [inc_colname]]
-    ## are these specific column names required for downstream processing in idmodels?
-    ## currently, the below are the same as in load_nhsn_from_nhsn
+    # are these specific column names required for downstream processing in idmodels?
+    # currently, the below are the same as in load_nhsn_from_nhsn
     dat.columns = ["location_name", "hsa_nci_id", "wk_end_date", "inc"]
     
     # get to location codes/FIPS
