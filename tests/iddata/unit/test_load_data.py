@@ -23,6 +23,14 @@ def test_load_data_sources():
     assert set(df["source"].unique()) == {"flusurvnet", "nhsn", "ilinet"}
 
 
+def test_nssp_columns():
+    fdl = DiseaseDataLoader()
+    
+    nhsn_df = fdl.load_data(sources=["nhsn"])
+    nssp_df = fdl.load_data(sources=["nssp"])
+    assert nssp_df.columns.all() == nhsn_df.columns.all()
+
+
 @pytest.mark.parametrize("test_kwargs, season_expected, wk_end_date_expected", [
     (None, "2022/23", "2023-12-23"),
     # ({"drop_pandemic_seasons": False}, "2019/20", "2023-12-23"),
@@ -77,7 +85,7 @@ def test_load_data_flusurvnet_kwargs(test_kwargs):
 
 @pytest.mark.parametrize("test_kwargs, season_expected, wk_end_date_expected", [
     (None, "2025/26", "2025-09-06"),
-    ({"drop_pandemic_seasons": True, "as_of": datetime.date.fromisoformat("2025-09-17")},
+    ({"drop_pandemic_seasons": True, "as_of": datetime.date.fromisoformat("2025-09-20")},
         "2025/26", "2025-09-06")
 ])
 def test_load_data_nssp_kwargs(test_kwargs, season_expected, wk_end_date_expected):
