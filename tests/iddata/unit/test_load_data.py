@@ -12,7 +12,8 @@ def test_load_data_sources():
         ["nhsn"],
         ["nhsn", "ilinet"],
         ["flusurvnet"],
-        ["flusurvnet", "nhsn", "ilinet"]
+        ["flusurvnet", "nhsn", "ilinet"],
+        ["nssp"]
     ]
     for sources in sources_options:
         df = fdl.load_data(sources=sources)
@@ -20,6 +21,14 @@ def test_load_data_sources():
     
     df = fdl.load_data()
     assert set(df["source"].unique()) == {"flusurvnet", "nhsn", "ilinet"}
+
+
+def test_nssp_columns():
+    fdl = DiseaseDataLoader()
+    
+    nhsn_df = fdl.load_data(sources=["nhsn"])
+    nssp_df = fdl.load_data(sources=["nssp"])
+    assert nssp_df.columns.all() == nhsn_df.columns.all()
 
 
 @pytest.mark.parametrize("test_kwargs, season_expected, wk_end_date_expected", [
@@ -32,6 +41,7 @@ def test_load_data_nhsn_kwargs(test_kwargs, season_expected, wk_end_date_expecte
     fdl = DiseaseDataLoader()
     
     df = fdl.load_data(sources=["nhsn"], nhsn_kwargs=test_kwargs)
+    print(df.head())
     
     assert df.dropna()["season"].min() == season_expected
     wk_end_date_actual = str(df["wk_end_date"].max())[:10]
@@ -72,3 +82,20 @@ def test_load_data_flusurvnet_kwargs(test_kwargs):
         assert len(df["location"].unique()) > 3
     else:
         assert len(df["location"].unique()) == len(test_kwargs["locations"])
+
+@pytest.mark.parametrize("test_kwargs, season_expected, wk_end_date_expected", [
+    (None, "2025/26", "2025-09-06"),
+    ({"drop_pandemic_seasons": True, "as_of": datetime.date.fromisoformat("2025-09-20")},
+        "2025/26", "2025-09-06")
+])
+def test_load_data_nssp_kwargs(test_kwargs, season_expected, wk_end_date_expected):
+    fdl = DiseaseDataLoader()
+
+    df = fdl.load_data(sources=["nssp"], nssp_kwargs=test_kwargs)
+    
+    assert df["season"].min() == season_expected
+    wk_end_date_actual = str(df["wk_end_date"].max())[:10]
+    if test_kwargs is not None and "as_of" in test_kwargs:
+        assert wk_end_date_actual == wk_end_date_expected
+    else:
+        assert wk_end_date_actual > wk_end_date_expected
