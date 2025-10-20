@@ -450,7 +450,7 @@ class DiseaseDataLoader():
     # filter, for each hsa_nci_id to include one fips value
     # following two lines of code are from genAI
     dat = dat.sort_values(by=["fips", "hsa_nci_id", "week_end"], ascending=[True, True, False])
-    dat = dat.drop_duplicates(subset=["hsa_nci_id"], keep="first")
+    dat = dat.drop_duplicates(subset=["hsa_nci_id", "week_end"], keep="first")
 
     # keep hsa_nci_id as this is the location code we will be indexing on
     dat = dat[["geography", "hsa_nci_id", "week_end"] + [inc_colname]]
