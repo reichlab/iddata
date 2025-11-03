@@ -447,10 +447,12 @@ class DiseaseDataLoader():
     elif disease == "rsv":
         inc_colname = "percent_visits_rsv"
     
-    # filter, for each hsa_nci_id to include one fips value
-    # following two lines of code are from genAI
-    dat = dat.sort_values(by=["fips", "hsa_nci_id", "week_end"], ascending=[True, True, False])
-    dat = dat.drop_duplicates(subset=["hsa_nci_id", "week_end"], keep="first")
+    # filter, for each hsa_nci_id (excluding states) to include one value per week
+    # code block written in collaboration with genAI
+    # dat = dat.sort_values(by=["week_end", "hsa_nci_id", "fips"], ascending=[False, False, True]) \
+    dat = dat.sort_values(by=["fips", "hsa_nci_id", "week_end"], ascending=[True, True, False]) \
+      .assign(unique_id = lambda x: np.where(x["county"] == "All", x["fips"], x["hsa_nci_id"])) \
+      .drop_duplicates(subset=["unique_id", "week_end"], keep="first")
 
     # keep hsa_nci_id as this is the location code we will be indexing on
     dat = dat[["geography", "hsa_nci_id", "week_end"] + [inc_colname]]
@@ -472,7 +474,7 @@ class DiseaseDataLoader():
     dat["wk_end_date"] = pd.to_datetime(dat["wk_end_date"])
     
     dat["agg_level"] = np.where(dat["location"] == "All", "state", "hsa")
-    dat["agg_level"] = np.where(dat["fips_code"] == "US", "national", "hsa")
+    dat["agg_level"] = np.where(dat["fips_code"] == "US", "national", dat["agg_level"])
     dat = dat[["agg_level", "location", "fips_code", "season", "season_week", "wk_end_date", "inc"]]
     dat["source"] = "nssp"
     return dat
