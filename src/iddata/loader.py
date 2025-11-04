@@ -554,29 +554,31 @@ class DiseaseDataLoader():
 
 
   def load_agg_transform_nssp(self, **nssp_kwargs):
-    df_nssp_by_hsa = self.load_nssp(**nssp_kwargs)
-    
+    df_nssp_raw = self.load_nssp(**nssp_kwargs)
+
     # pull out already-aggregated locations
-    df_nssp_alr_agg = df_nssp_by_hsa \
-      .loc[df_nssp_by_hsa["location"] == "All"] \
-      .drop(columns = ["location"]) \
-      .rename(columns = {"fips_code": "location"})
-    alr_agg_loc = df_nssp_alr_agg["location"].unique()
-    # aggregate other nssp hsa to state level,
-    # mainly to facilitate adding populations
-    df_nssp_by_state = df_nssp_by_hsa \
-      .loc[~df_nssp_by_hsa["fips_code"].isin(alr_agg_loc)] \
-      .drop(columns = ["location"]) \
-      .rename(columns = {"fips_code": "location"}) \
-      .groupby(["location", "season", "season_week", "wk_end_date", "source"]) \
-      .apply(lambda x: pd.DataFrame({"inc": [np.mean(x["inc"])]})) \
-      .reset_index() \
-      .assign(agg_level = "state")
+    df_nssp_states = df_nssp_raw.loc[(df_nssp_raw["agg_level"] == "state") & (~np.isnan(df_nssp_raw["inc"]))]
+    nonmissing_states = df_nssp_states["fips_code"].unique()
+
+    # fill in missing data by averaging nssp hsa values for a particular state
+    if len(nonmissing_states) < 51:
+        df_nssp_missing_states = df_nssp_raw \
+            .loc[~df_nssp_raw["fips_code"].isin(nonmissing_states)] \
+            .groupby(["agg_level", "location", "fips_code", "season", "season_week", "wk_end_date", "source"]) \
+            .apply(lambda x: pd.DataFrame({"inc": [np.mean(x["inc"])]})) \
+            .reset_index() \
+            .assign(agg_level = "state")
+        
+        df_nssp = pd.concat(
+            [df_nssp_raw.loc[df_nssp_raw["agg_level"] == "hsa"], 
+            df_nssp_states.loc[~np.isnan(df_nssp_states["inc"])],
+            df_nssp_missing_states],
+            join="inner",
+            axis = 0)
+        df_nssp = df_nssp.drop_duplicates(subset=["location", "fips_code", "wk_end_date", "source"], keep="first")
     
-    df_nssp = pd.concat(
-      [df_nssp_by_state, df_nssp_alr_agg],
-      join="inner",
-      axis = 0)
+    else:
+        df_nssp = df_nssp_raw
     
     return df_nssp
 
