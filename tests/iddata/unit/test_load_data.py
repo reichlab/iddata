@@ -1,7 +1,6 @@
 import datetime
 
 import numpy as np
-import pandas as pd
 import pytest
 from iddata.loader import DiseaseDataLoader
 
