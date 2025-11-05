@@ -461,7 +461,7 @@ class DiseaseDataLoader():
     # get to location codes/FIPS
     fips_mappings = self.load_fips_mappings()
     dat = dat.merge(fips_mappings, on=["location_name"], how="left") \
-      .rename(columns = {"location": "fips_code", "hsa_nci_id": "location"})
+      .rename(columns = {"location": "fips_code"})
     
     ew_str = dat.apply(utils.date_to_ew_str, axis=1)
     dat["season"] = utils.convert_epiweek_to_season(ew_str)
@@ -473,8 +473,9 @@ class DiseaseDataLoader():
     
     dat["wk_end_date"] = pd.to_datetime(dat["wk_end_date"])
     
-    dat["agg_level"] = np.where(dat["location"] == "All", "state", "hsa")
+    dat["agg_level"] = np.where(dat["hsa_nci_id"] == "All", "state", "hsa")
     dat["agg_level"] = np.where(dat["fips_code"] == "US", "national", dat["agg_level"])
+    dat["location"] = np.where(dat["hsa_nci_id"] == "All", dat["fips_code"], dat["hsa_nci_id"])
     dat = dat[["agg_level", "location", "fips_code", "season", "season_week", "wk_end_date", "inc"]]
     dat["source"] = "nssp"
     return dat
@@ -561,16 +562,17 @@ class DiseaseDataLoader():
     nonmissing_states = df_nssp_states["fips_code"].unique()
 
     # fill in missing data by averaging nssp hsa values for a particular state
-    if len(nonmissing_states) < 51:
+    if len(nonmissing_states) < 50: # 49 states + PR
         df_nssp_missing_states = df_nssp_raw \
-            .loc[~df_nssp_raw["fips_code"].isin(nonmissing_states)] \
-            .groupby(["agg_level", "location", "fips_code", "season", "season_week", "wk_end_date", "source"]) \
+            .loc[(~df_nssp_raw["fips_code"].isin(nonmissing_states)) & (df_nssp_raw["agg_level"] == "hsa")] \
+            .groupby(["fips_code", "season", "season_week", "wk_end_date", "source"]) \
             .apply(lambda x: pd.DataFrame({"inc": [np.mean(x["inc"])]})) \
             .reset_index() \
             .assign(agg_level = "state")
+        df_nssp_missing_states["location"] = df_nssp_missing_states["fips_code"]
         
         df_nssp = pd.concat(
-            [df_nssp_raw.loc[df_nssp_raw["agg_level"] == "hsa"], 
+            [df_nssp_raw.loc[df_nssp_raw["agg_level"] != "state"], 
             df_nssp_states.loc[~np.isnan(df_nssp_states["inc"])],
             df_nssp_missing_states],
             join="inner",
