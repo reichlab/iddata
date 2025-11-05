@@ -1,6 +1,7 @@
 import datetime
 
 import numpy as np
+import pandas as pd
 import pytest
 from iddata.loader import DiseaseDataLoader
 
@@ -29,6 +30,18 @@ def test_nssp_columns():
     nhsn_df = fdl.load_data(sources=["nhsn"])
     nssp_df = fdl.load_data(sources=["nssp"])
     assert nssp_df.columns.all() == nhsn_df.columns.all()
+
+
+@pytest.mark.parametrize("select_date, select_locations, expected_fips, expected_agg_levels", [
+    ("2025-09-06", ["US", "01", "150"], ["US", "01", "01"], ["national", "state", "hsa"])
+])
+def test_nssp_locations(select_date, select_locations, expected_fips, expected_agg_levels):
+    fdl = DiseaseDataLoader()
+    df = fdl.load_data(sources=["nssp"])
+    subset_df = df.loc[(df["wk_end_date"] == select_date) & (df["location"].isin(select_locations))]
+    
+    assert set(subset_df["fips_code"]) == set(expected_fips)
+    assert set(subset_df["agg_level"]) == set(expected_agg_levels)
 
 
 @pytest.mark.parametrize("test_kwargs, season_expected, wk_end_date_expected", [
