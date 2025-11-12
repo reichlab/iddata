@@ -644,6 +644,7 @@ class DiseaseDataLoader():
 
     if "nssp" in sources:
         df_nssp = self.load_agg_transform_nssp(**nssp_kwargs)
+        df_nssp = df_nssp.drop(columns=["fips_code"]) # remove extra column
     else:
         df_nssp = None
     
@@ -652,7 +653,11 @@ class DiseaseDataLoader():
         axis=0).sort_values(["source", "location", "wk_end_date"])
     
     # log population
+    # census doesn't provide hsa pop, but some will be added erroneously upon join
+    # when hsa_nci_id given is identical to a valid fips code
+    # so we need to remove those
     df = df.merge(us_census, how="left", on=["location", "season"])
+    df["pop"] = np.where(df["agg_level"] == "hsa", np.nan, df["pop"])
     df["log_pop"] = np.log(df["pop"])
     
     # process response variable:
