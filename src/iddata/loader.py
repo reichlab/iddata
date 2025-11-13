@@ -449,7 +449,6 @@ class DiseaseDataLoader():
     
     # filter, for each hsa_nci_id (excluding states) to include one value per week
     # code block written in collaboration with genAI
-    # dat = dat.sort_values(by=["week_end", "hsa_nci_id", "fips"], ascending=[False, False, True]) \
     dat = dat.sort_values(by=["fips", "hsa_nci_id", "week_end"], ascending=[True, True, False]) \
       .assign(unique_id = lambda x: np.where(x["county"] == "All", x["fips"], x["hsa_nci_id"])) \
       .drop_duplicates(subset=["unique_id", "week_end"], keep="first")
