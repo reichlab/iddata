@@ -39,7 +39,11 @@ def test_nssp_locations(select_date, select_locations, expected_agg_levels):
     df = fdl.load_data(sources=["nssp"])
     subset_df = df.loc[(df["wk_end_date"] == select_date) & (df["location"].isin(select_locations))]
     
-    assert set(subset_df["agg_level"]) == set(expected_agg_levels)
+    # Get actual aggregation levels as a sorted list to preserve duplicates
+    actual_agg_levels = sorted(subset_df["agg_level"].tolist())
+    expected_agg_levels_sorted = sorted(expected_agg_levels)
+    
+    assert actual_agg_levels == expected_agg_levels_sorted
 
 
 @pytest.mark.parametrize("test_kwargs, season_expected, wk_end_date_expected", [
