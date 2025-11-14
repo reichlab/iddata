@@ -561,7 +561,7 @@ class DiseaseDataLoader():
     nonmissing_states = df_nssp_states["fips_code"].unique()
 
     # fill in missing data by averaging nssp hsa values for a particular state
-    if len(nonmissing_states) < 50: # 49 states + PR
+    if len(nonmissing_states) < 50: # 49 states (no MO) + PR
         df_nssp_missing_states = df_nssp_raw \
             .loc[(~df_nssp_raw["fips_code"].isin(nonmissing_states)) & (df_nssp_raw["agg_level"] == "hsa")] \
             .groupby(["fips_code", "season", "season_week", "wk_end_date", "source"]) \
