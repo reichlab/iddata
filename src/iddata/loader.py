@@ -572,7 +572,7 @@ class DiseaseDataLoader():
         
         df_nssp = pd.concat(
             [df_nssp_raw.loc[df_nssp_raw["agg_level"] != "state"], 
-            df_nssp_states.loc[~np.isnan(df_nssp_states["inc"])],
+            df_nssp_states,
             df_nssp_missing_states],
             join="inner",
             axis = 0)
