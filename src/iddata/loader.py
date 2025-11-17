@@ -1,4 +1,5 @@
 import datetime
+import warnings
 from itertools import product
 from urllib.parse import urljoin
 
@@ -569,6 +570,9 @@ class DiseaseDataLoader():
             .reset_index() \
             .assign(agg_level = "state")
         df_nssp_missing_states["location"] = df_nssp_missing_states["fips_code"]
+        
+        missing_states = df_nssp_missing_states["fips_code"].unique()
+        warnings.warn(f"Interpolating missing values for states {missing_states}")
         
         df_nssp = pd.concat(
             [df_nssp_raw.loc[df_nssp_raw["agg_level"] != "state"], 
