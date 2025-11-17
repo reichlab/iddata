@@ -1,4 +1,5 @@
 import datetime
+import warnings
 from itertools import product
 from urllib.parse import urljoin
 
@@ -447,10 +448,11 @@ class DiseaseDataLoader():
     elif disease == "rsv":
         inc_colname = "percent_visits_rsv"
     
-    # filter, for each hsa_nci_id to include one fips value
-    # following two lines of code are from genAI
-    dat = dat.sort_values(by=["fips", "hsa_nci_id", "week_end"], ascending=[True, True, False])
-    dat = dat.drop_duplicates(subset=["hsa_nci_id", "week_end"], keep="first")
+    # filter, for each hsa_nci_id (excluding states) to include one value per week
+    # code block written in collaboration with genAI
+    dat = dat.sort_values(by=["fips", "hsa_nci_id", "week_end"], ascending=[True, True, False]) \
+      .assign(unique_id = lambda x: np.where(x["hsa_nci_id"] == "All", x["fips"], x["hsa_nci_id"])) \
+      .drop_duplicates(subset=["unique_id", "week_end"], keep="first")
 
     # keep hsa_nci_id as this is the location code we will be indexing on
     dat = dat[["geography", "hsa_nci_id", "week_end"] + [inc_colname]]
@@ -459,7 +461,7 @@ class DiseaseDataLoader():
     # get to location codes/FIPS
     fips_mappings = self.load_fips_mappings()
     dat = dat.merge(fips_mappings, on=["location_name"], how="left") \
-      .rename(columns = {"location": "fips_code", "hsa_nci_id": "location"})
+      .rename(columns = {"location": "fips_code"})
     
     ew_str = dat.apply(utils.date_to_ew_str, axis=1)
     dat["season"] = utils.convert_epiweek_to_season(ew_str)
@@ -471,8 +473,9 @@ class DiseaseDataLoader():
     
     dat["wk_end_date"] = pd.to_datetime(dat["wk_end_date"])
     
-    dat["agg_level"] = np.where(dat["location"] == "All", "state", "hsa")
-    dat["agg_level"] = np.where(dat["fips_code"] == "US", "national", "hsa")
+    dat["agg_level"] = np.where(dat["hsa_nci_id"] == "All", "state", "hsa")
+    dat["agg_level"] = np.where(dat["fips_code"] == "US", "national", dat["agg_level"])
+    dat["location"] = np.where(dat["hsa_nci_id"] == "All", dat["fips_code"], dat["hsa_nci_id"])
     dat = dat[["agg_level", "location", "fips_code", "season", "season_week", "wk_end_date", "inc"]]
     dat["source"] = "nssp"
     return dat
@@ -552,29 +555,35 @@ class DiseaseDataLoader():
 
 
   def load_agg_transform_nssp(self, **nssp_kwargs):
-    df_nssp_by_hsa = self.load_nssp(**nssp_kwargs)
-    
+    df_nssp_raw = self.load_nssp(**nssp_kwargs)
+
     # pull out already-aggregated locations
-    df_nssp_alr_agg = df_nssp_by_hsa \
-      .loc[df_nssp_by_hsa["location"] == "All"] \
-      .drop(columns = ["location"]) \
-      .rename(columns = {"fips_code": "location"})
-    alr_agg_loc = df_nssp_alr_agg["location"].unique()
-    # aggregate other nssp hsa to state level,
-    # mainly to facilitate adding populations
-    df_nssp_by_state = df_nssp_by_hsa \
-      .loc[~df_nssp_by_hsa["fips_code"].isin(alr_agg_loc)] \
-      .drop(columns = ["location"]) \
-      .rename(columns = {"fips_code": "location"}) \
-      .groupby(["location", "season", "season_week", "wk_end_date", "source"]) \
-      .apply(lambda x: pd.DataFrame({"inc": [np.mean(x["inc"])]})) \
-      .reset_index() \
-      .assign(agg_level = "state")
+    df_nssp_states = df_nssp_raw.loc[(df_nssp_raw["agg_level"] == "state") & (~np.isnan(df_nssp_raw["inc"]))]
+    nonmissing_states = df_nssp_states["fips_code"].unique()
+
+    # fill in missing data by averaging nssp hsa values for a particular state
+    if len(nonmissing_states) < 50: # 49 states (no MO) + PR
+        df_nssp_missing_states = df_nssp_raw \
+            .loc[(~df_nssp_raw["fips_code"].isin(nonmissing_states)) & (df_nssp_raw["agg_level"] == "hsa")] \
+            .groupby(["fips_code", "season", "season_week", "wk_end_date", "source"]) \
+            .apply(lambda x: pd.DataFrame({"inc": [np.mean(x["inc"])]})) \
+            .reset_index() \
+            .assign(agg_level = "state")
+        df_nssp_missing_states["location"] = df_nssp_missing_states["fips_code"]
+        
+        missing_states = df_nssp_missing_states["fips_code"].unique()
+        warnings.warn(f"Interpolating missing values for states {missing_states}")
+        
+        df_nssp = pd.concat(
+            [df_nssp_raw.loc[df_nssp_raw["agg_level"] != "state"], 
+            df_nssp_states,
+            df_nssp_missing_states],
+            join="inner",
+            axis = 0)
+        df_nssp = df_nssp.drop_duplicates(subset=["location", "fips_code", "wk_end_date", "source"], keep="first")
     
-    df_nssp = pd.concat(
-      [df_nssp_by_state, df_nssp_alr_agg],
-      join="inner",
-      axis = 0)
+    else:
+        df_nssp = df_nssp_raw
     
     return df_nssp
 
@@ -638,6 +647,7 @@ class DiseaseDataLoader():
 
     if "nssp" in sources:
         df_nssp = self.load_agg_transform_nssp(**nssp_kwargs)
+        df_nssp = df_nssp.drop(columns=["fips_code"]) # remove extra column
     else:
         df_nssp = None
     
@@ -646,7 +656,11 @@ class DiseaseDataLoader():
         axis=0).sort_values(["source", "location", "wk_end_date"])
     
     # log population
+    # census doesn't provide hsa pop, but some will be added erroneously upon join
+    # when hsa_nci_id given is identical to a valid fips code
+    # so we need to remove those
     df = df.merge(us_census, how="left", on=["location", "season"])
+    df["pop"] = np.where(df["agg_level"] == "hsa", np.nan, df["pop"])
     df["log_pop"] = np.log(df["pop"])
     
     # process response variable:
