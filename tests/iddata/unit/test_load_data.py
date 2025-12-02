@@ -107,10 +107,66 @@ def test_load_data_nssp_kwargs(test_kwargs, season_expected, wk_end_date_expecte
     fdl = DiseaseDataLoader()
 
     df = fdl.load_data(sources=["nssp"], nssp_kwargs=test_kwargs)
-    
+
     assert df["season"].min() == season_expected
     wk_end_date_actual = str(df["wk_end_date"].max())[:10]
     if test_kwargs is not None and "as_of" in test_kwargs:
         assert wk_end_date_actual == wk_end_date_expected
     else:
         assert wk_end_date_actual > wk_end_date_expected
+
+
+@pytest.mark.parametrize("disease", ["flu", "covid", "rsv"])
+def test_load_nssp_from_epidata_diseases(disease):
+    """Test that load_nssp_from_epidata works for all supported diseases."""
+    fdl = DiseaseDataLoader()
+
+    # Use an as_of date when epidata data is available
+    df = fdl.load_nssp_from_epidata(disease=disease, as_of=datetime.date.fromisoformat("2024-06-01"))
+
+    assert len(df) > 0
+    assert "inc" in df.columns
+    assert df["source"].unique()[0] == "nssp"
+
+
+def test_load_nssp_from_epidata_agg_levels():
+    """Test that epidata returns expected aggregation levels."""
+    fdl = DiseaseDataLoader()
+
+    df = fdl.load_nssp_from_epidata(as_of=datetime.date.fromisoformat("2024-06-01"))
+
+    agg_levels = set(df["agg_level"].unique())
+    assert "national" in agg_levels
+    assert "state" in agg_levels
+    assert "hsa" in agg_levels
+
+
+def test_load_nssp_from_epidata_columns():
+    """Test that epidata returns expected columns."""
+    fdl = DiseaseDataLoader()
+
+    df = fdl.load_nssp_from_epidata(as_of=datetime.date.fromisoformat("2024-06-01"))
+
+    expected_cols = {"agg_level", "location", "fips_code", "season", "season_week", "wk_end_date", "inc", "source"}
+    assert set(df.columns) == expected_cols
+
+
+def test_load_nssp_from_epidata_wk_end_date_is_saturday():
+    """Test that wk_end_date values are all Saturdays."""
+    fdl = DiseaseDataLoader()
+
+    df = fdl.load_nssp_from_epidata(as_of=datetime.date.fromisoformat("2024-06-01"))
+
+    # Saturday is weekday 5
+    assert all(df["wk_end_date"].dt.weekday == 5)
+
+
+def test_load_nssp_from_epidata_drop_pandemic_seasons():
+    """Test that pandemic seasons are dropped when requested."""
+    fdl = DiseaseDataLoader()
+
+    df = fdl.load_nssp_from_epidata(as_of=datetime.date.fromisoformat("2024-06-01"), drop_pandemic_seasons=True)
+
+    pandemic_data = df[df["season"].isin(["2020/21", "2021/22"])]
+    if len(pandemic_data) > 0:
+        assert pandemic_data["inc"].isna().all()
