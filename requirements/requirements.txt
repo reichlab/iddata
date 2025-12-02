@@ -12,12 +12,24 @@ aioitertools==0.12.0
     # via aiobotocore
 aiosignal==1.3.1
     # via aiohttp
+appdirs==1.4.4
+    # via epidatpy
 attrs==24.2.0
     # via
     #   aiohttp
     #   pymmwr
 botocore==1.35.36
     # via aiobotocore
+certifi==2025.11.12
+    # via requests
+charset-normalizer==3.4.4
+    # via requests
+diskcache==5.6.3
+    # via epidatpy
+epidatpy @ git+https://github.com/cmu-delphi/epidatpy.git@c8ae8e894b388fe1a5ec358d36405d7e1c14e0d2
+    # via iddata (pyproject.toml)
+epiweeks==2.3.0
+    # via epidatpy
 frozenlist==1.5.0
     # via
     #   aiohttp
@@ -25,7 +37,9 @@ frozenlist==1.5.0
 fsspec==2024.10.0
     # via s3fs
 idna==3.10
-    # via yarl
+    # via
+    #   requests
+    #   yarl
 jmespath==1.0.1
     # via botocore
 markdown-it-py==3.0.0
@@ -41,7 +55,9 @@ numpy==2.1.3
     #   iddata (pyproject.toml)
     #   pandas
 pandas==2.2.3
-    # via iddata (pyproject.toml)
+    # via
+    #   iddata (pyproject.toml)
+    #   epidatpy
 propcache==0.2.0
     # via yarl
 pygments==2.18.0
@@ -54,18 +70,24 @@ python-dateutil==2.9.0.post0
     #   pandas
 pytz==2024.2
     # via pandas
+requests==2.32.5
+    # via epidatpy
 rich==13.7.1
     # via iddata (pyproject.toml)
 s3fs==2024.10.0
     # via iddata (pyproject.toml)
 six==1.16.0
     # via python-dateutil
+tenacity==9.1.2
+    # via epidatpy
 toml==0.10.2
     # via iddata (pyproject.toml)
 tzdata==2024.2
     # via pandas
 urllib3==2.2.3
-    # via botocore
+    # via
+    #   botocore
+    #   requests
 wrapt==1.16.0
     # via aiobotocore
 yarl==1.17.1

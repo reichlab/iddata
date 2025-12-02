@@ -11,6 +11,7 @@ classifiers = [
 dynamic = ["version"]
 
 dependencies = [
+    "epidatpy @ git+https://github.com/cmu-delphi/epidatpy.git",
     "numpy",
     "pandas",
     "pymmwr",
