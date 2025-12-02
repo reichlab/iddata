@@ -3,6 +3,7 @@ import warnings
 from itertools import product
 from urllib.parse import urljoin
 
+from epidatpy import EpiDataContext, EpiRange
 import numpy as np
 import pandas as pd
 import pymmwr
@@ -410,22 +411,106 @@ class DiseaseDataLoader():
     valid_diseases = ["flu", "covid", "rsv"]
     if disease not in valid_diseases:
         raise ValueError("For NSSP data, the only supported diseases are 'flu', 'covid' and 'rsv'.")
-    
+
     if as_of is None:
       as_of = datetime.date.today()
-    
+
     if isinstance(as_of, str):
       as_of = datetime.date.fromisoformat(as_of)
 
-    # for now, only support loading NSSP data from CDC for as_of dates on or after 2025-09-17
-    if as_of < datetime.date.fromisoformat("2025-09-17"):
-      raise NotImplementedError("Functionality for loading NSSP data with specified as_of date is not implemented.")
-    else:
+    # Try epidata first, fall back to CDC if it fails
+    try:
+      return self.load_nssp_from_epidata(
+        disease=disease,
+        as_of=as_of,
+        drop_pandemic_seasons=drop_pandemic_seasons
+      )
+    except Exception:
       return self.load_nssp_from_cdc(
         disease=disease,
         as_of=as_of,
         drop_pandemic_seasons=drop_pandemic_seasons
       )
+
+  def load_nssp_from_epidata(self, disease="flu", as_of=None, drop_pandemic_seasons=True):
+    valid_diseases = ["flu", "covid", "rsv"]
+    if disease not in valid_diseases:
+        raise ValueError("For NSSP data, the only supported diseases are 'flu', 'covid' and 'rsv'.")
+
+    # Map disease to epidata signal name
+    signal_map = {
+        "flu": "pct_ed_visits_influenza",
+        "covid": "pct_ed_visits_covid",
+        "rsv": "pct_ed_visits_rsv"
+    }
+    signal = signal_map[disease]
+
+    # Convert as_of to integer format YYYYMMDD for epidata
+    as_of_int = int(as_of.strftime("%Y%m%d"))
+
+    # Convert as_of date to epiweek format (YYYYWW) for the time range
+    as_of_epiweek = pymmwr.date_to_epiweek(as_of)
+    as_of_week_int = as_of_epiweek.year * 100 + as_of_epiweek.week
+
+    # Query epidata for each geo type
+    epidata = EpiDataContext(use_cache=True, cache_max_age_days=1)
+    time_range = EpiRange(202240, as_of_week_int)  # NSSP data starts October 2022
+
+    dfs = []
+    for geo_type in ["nation", "state", "county"]:
+        result = epidata.pub_covidcast(
+            data_source="nssp",
+            signals=signal,
+            geo_type=geo_type,
+            time_type="week",
+            geo_values="*",
+            time_values=time_range,
+            as_of=as_of_int
+        ).df()
+        if result is not None and len(result) > 0:
+            result["geo_type"] = geo_type
+            dfs.append(result)
+
+    if len(dfs) == 0:
+        raise ValueError(f"No NSSP data available from Epidata for as_of={as_of}")
+
+    dat = pd.concat(dfs, axis=0, ignore_index=True)
+
+    # time_value is YYYYWW; convert to Saturday wk_end_date
+    # epiweeks end on Saturday, so we get the Saturday of each epiweek
+    # Note: epidata returns time_value as string, so convert to int first
+    dat["time_value_int"] = dat["time_value"].astype(int)
+    dat["year"] = dat["time_value_int"] // 100
+    dat["week"] = dat["time_value_int"] % 100
+    dat["wk_end_date"] = dat.apply(
+        lambda x: pymmwr.epiweek_to_date(pymmwr.Epiweek(year=x["year"], week=x["week"], day=7)).strftime("%Y-%m-%d"),
+        axis=1
+    )
+    dat["wk_end_date"] = pd.to_datetime(dat["wk_end_date"])
+
+    # Use existing utils for season calculations
+    ew_str = dat["year"].astype(str) + dat["week"].astype(str)
+    dat["season"] = utils.convert_epiweek_to_season(ew_str)
+    dat["season_week"] = utils.convert_epiweek_to_season_week(ew_str)
+
+    # Set up fips_code and location
+    dat["geo_value"] = dat["geo_value"].str.upper()
+    dat["fips_code"] = dat["geo_value"]
+    dat["location"] = dat["geo_value"]
+
+    # Set agg_level (county becomes "hsa")
+    dat["agg_level"] = dat["geo_type"].map({"nation": "national", "state": "state", "county": "hsa"})
+
+    dat["inc"] = dat["value"]
+
+    if drop_pandemic_seasons:
+        dat.loc[dat["season"].isin(["2020/21", "2021/22"]), "inc"] = np.nan
+
+    dat = dat.sort_values(by=["season", "season_week"])
+    dat = dat[["agg_level", "location", "fips_code", "season", "season_week", "wk_end_date", "inc"]]
+    dat["source"] = "nssp"
+
+    return dat
 
   def load_nssp_from_cdc(self, disease="flu", as_of=None, drop_pandemic_seasons=True):
     valid_diseases = ["flu", "covid", "rsv"]
