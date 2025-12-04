@@ -22,6 +22,54 @@ class DiseaseDataLoader():
   def load_fips_mappings(self):
     return pd.read_csv(self._construct_data_raw_url("fips-mappings/fips_mappings.csv"))
 
+  def load_hsa_location_metadata(self):
+    """Load and prepare HSA location metadata from SEER spreadsheet."""
+    hsa_url = "https://seer.cancer.gov/seerstat/variables/countyattribs/Health.Service.Areas.xls"
+    df = pd.read_excel(hsa_url)
+
+    # Rename columns
+    df.columns = ["hsa_nci_id", "hsa_desc", "state_county", "geo_value"]
+
+    # Convert geo_value to string with zero-padding (5 digits for county FIPS)
+    df["geo_value"] = df["geo_value"].astype(str).str.zfill(5)
+
+    # Create fips_code from first 2 characters of geo_value (state FIPS code)
+    df["fips_code"] = df["geo_value"].str[:2]
+
+    # Create abbreviation from first 2 characters of state_county column
+    df["abbreviation"] = df["state_county"].str[:2]
+
+    # Get unique state fips_code and abbreviation combinations
+    state_data = df[["fips_code", "abbreviation"]].drop_duplicates()
+
+    # Create "Entire state" rows for each unique state
+    state_rows = []
+    for _, row in state_data.iterrows():
+        state_rows.append({
+            "hsa_nci_id": np.nan,
+            "hsa_desc": np.nan,
+            "state_county": "Entire state",
+            "geo_value": row["abbreviation"].lower(),
+            "fips_code": row["fips_code"],
+            "abbreviation": row["abbreviation"]
+        })
+
+    # Create US row
+    state_rows.append({
+        "hsa_nci_id": np.nan,
+        "hsa_desc": np.nan,
+        "state_county": "Entire state",
+        "geo_value": "us",
+        "fips_code": "US",
+        "abbreviation": "US"
+    })
+
+    # Combine original data with state/US rows
+    state_df = pd.DataFrame(state_rows)
+    result_df = pd.concat([df, state_df], ignore_index=True)
+
+    return result_df
+
 
   def load_flusurv_rates_2022_23(self):
     dat = pd.read_csv(self._construct_data_raw_url("influenza-flusurv/flusurv-rates/flusurv-rates-2022-23.csv"),
@@ -493,15 +541,21 @@ class DiseaseDataLoader():
     dat["season"] = utils.convert_epiweek_to_season(ew_str)
     dat["season_week"] = utils.convert_epiweek_to_season_week(ew_str)
 
-    # Set up fips_code and location
-    dat["geo_value"] = dat["geo_value"].str.upper()
-    dat["fips_code"] = dat["geo_value"]
-    dat["location"] = dat["geo_value"]
-
     # Set agg_level (county becomes "hsa")
     dat["agg_level"] = dat["geo_type"].map({"nation": "national", "state": "state", "county": "hsa"})
 
     dat["inc"] = dat["value"]
+
+    # Load HSA location metadata and left merge
+    hsa_metadata = self.load_hsa_location_metadata()
+    dat = dat.merge(hsa_metadata, on="geo_value", how="left")
+
+    # Set location: use fips_code for state/national, hsa_nci_id for hsa
+    dat["location"] = np.where(
+        dat["agg_level"] == "hsa",
+        dat["hsa_nci_id"].astype(int).astype(str),
+        dat["fips_code"]
+    )
 
     if drop_pandemic_seasons:
         dat.loc[dat["season"].isin(["2020/21", "2021/22"]), "inc"] = np.nan
