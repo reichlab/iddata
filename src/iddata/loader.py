@@ -553,7 +553,7 @@ class DiseaseDataLoader():
     # Set location: use fips_code for state/national, hsa_nci_id for hsa
     dat["location"] = np.where(
         dat["agg_level"] == "hsa",
-        dat["hsa_nci_id"].astype(int).astype(str),
+        dat["hsa_nci_id"].astype(str).str.split('.').str[0],
         dat["fips_code"]
     )
 
