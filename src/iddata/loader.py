@@ -557,6 +557,9 @@ class DiseaseDataLoader():
         dat["fips_code"]
     )
 
+    # Remove duplicate HSA rows (keep rows where location is nan/null or first occurrence)
+    dat = dat[~((dat["agg_level"] == "hsa") & dat["location"].notna() & dat.duplicated(subset=["agg_level", "location", "wk_end_date"], keep="first"))]
+
     if drop_pandemic_seasons:
         dat.loc[dat["season"].isin(["2020/21", "2021/22"]), "inc"] = np.nan
 
