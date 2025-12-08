@@ -54,11 +54,11 @@ def test_nssp_locations(select_date, select_locations, expected_agg_levels):
 ])
 def test_load_data_nhsn_kwargs(test_kwargs, season_expected, wk_end_date_expected):
     fdl = DiseaseDataLoader()
-    
     df = fdl.load_data(sources=["nhsn"], nhsn_kwargs=test_kwargs)
-    print(df.head())
     
     assert df.dropna()["season"].min() == season_expected
+    
+    # data is snapshotted on wednesday -> as_of will be previous saturday until following wednesday
     wk_end_date_actual = str(df["wk_end_date"].max())[:10]
     if test_kwargs is not None and "as_of" in test_kwargs:
         assert wk_end_date_actual == wk_end_date_expected
