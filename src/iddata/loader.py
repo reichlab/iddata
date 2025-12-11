@@ -493,6 +493,10 @@ class DiseaseDataLoader():
     }
     signal = signal_map[disease]
 
+    # Round down as_of to the previous Saturday (Saturday = weekday 5)
+    days_since_saturday = (as_of.weekday() - 5) % 7
+    as_of = as_of - datetime.timedelta(days=days_since_saturday)
+
     # Convert as_of to integer format YYYYMMDD for epidata
     as_of_int = int(as_of.strftime("%Y%m%d"))
 
