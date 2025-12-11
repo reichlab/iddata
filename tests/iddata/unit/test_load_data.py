@@ -100,15 +100,16 @@ def test_load_data_flusurvnet_kwargs(test_kwargs):
 
 @pytest.mark.parametrize("test_kwargs, season_expected, wk_end_date_expected", [
     (None, "2022/23", "2025-09-06"),
-    ({"drop_pandemic_seasons": True, "as_of": datetime.date.fromisoformat("2025-09-20")},
+    ({"drop_pandemic_seasons": True, "as_of": datetime.date.fromisoformat("2025-09-10")},
         "2022/23", "2025-09-06")
 ])
 def test_load_data_nssp_kwargs(test_kwargs, season_expected, wk_end_date_expected):
     fdl = DiseaseDataLoader()
-
     df = fdl.load_data(sources=["nssp"], nssp_kwargs=test_kwargs)
 
     assert df["season"].min() == season_expected
+    
+    # data is snapshotted on wednesday -> as_of will be previous saturday until following wednesday
     wk_end_date_actual = str(df["wk_end_date"].max())[:10]
     if test_kwargs is not None and "as_of" in test_kwargs:
         assert wk_end_date_actual == wk_end_date_expected
