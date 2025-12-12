@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: 'main'
   schedule:
-    - cron: "45 17 * * 5" # every Friday at 5:45PM UTC == 12:45PM EST
+    - cron: "45 18 * * 3,5" # every Wednesday and Friday at 5:45PM UTC == 1:45PM EST
   workflow_dispatch:
 
 env:
