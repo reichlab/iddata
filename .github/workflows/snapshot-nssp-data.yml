@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: 'main'
   schedule:
-    - cron: "45 17 * * 5" # every Friday at 5:45PM UTC == 12:45PM EST
+    - cron: "45 17 * * 3,5" # every Wednesday and Friday at 5:45PM UTC == 12:45PM EST
   workflow_dispatch:
 
 env:
@@ -36,7 +36,7 @@ jobs:
 
       - name: install R packages
         run: |
-          Rscript -e "install.packages('remotes');
+          Rscript -e "install.packages(c('remotes', 'lubridate', 'arrow'));
                       remotes::install_github('Chicago/RSocrata')"
 
       - name: Get file name
@@ -44,13 +44,18 @@ jobs:
 
       - name: Snapshot NSSP data
         # download and process file
+        # preliminary data on Wednesday; official data otherwise
         # some columns removed
         # remove timezone letters from week_end
         # add back leading zeroes to fips codes to make sure all are length 5
-        run: Rscript -e "nssp_data <- RSocrata::read.socrata('https://data.cdc.gov/resource/rdmq-nq56.csv');
+        run: Rscript -e "if (lubridate::wday(Sys.Date()) == 4) {
+                           nssp_data <- arrow::read_parquet('https://raw.githubusercontent.com/CDCgov/covid19-forecast-hub/refs/heads/main/auxiliary-data/nssp-raw-data/latest.parquet');
+                         } else {
+                           nssp_data <- RSocrata::read.socrata('https://data.cdc.gov/resource/rdmq-nq56.csv');
+                           nssp_data[['fips']] <- sprintf('%05d', nssp_data[['fips']]);
+                         };
                          nssp_data <- nssp_data[c('week_end', 'geography', 'county', 'fips', 'hsa_nci_id', 'percent_visits_covid', 'percent_visits_influenza', 'percent_visits_rsv')];
                          nssp_data[['week_end']] <- substr(nssp_data[['week_end']], 1, 10);
-                         nssp_data[['fips']] <- sprintf('%05d', nssp_data[['fips']]);
                          write.csv(nssp_data, file = '$FILE_NAME', row.names = FALSE)"
         env:
           FILE_NAME: ${{ env.FILE_NAME }}
