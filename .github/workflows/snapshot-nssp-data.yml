@@ -51,11 +51,11 @@ jobs:
         run: Rscript -e "if (lubridate::wday(Sys.Date()) == 4) {
                            nssp_data <- arrow::read_parquet('https://raw.githubusercontent.com/CDCgov/covid19-forecast-hub/refs/heads/main/auxiliary-data/nssp-raw-data/latest.parquet');
                          } else {
-                           nssp_data <- RSocrata::read.socrata('https://data.cdc.gov/resource/rdmq-nq56.csv')
+                           nssp_data <- RSocrata::read.socrata('https://data.cdc.gov/resource/rdmq-nq56.csv');
+                           nssp_data[['fips']] <- sprintf('%05d', nssp_data[['fips']]);
                          };
                          nssp_data <- nssp_data[c('week_end', 'geography', 'county', 'fips', 'hsa_nci_id', 'percent_visits_covid', 'percent_visits_influenza', 'percent_visits_rsv')];
                          nssp_data[['week_end']] <- substr(nssp_data[['week_end']], 1, 10);
-                         nssp_data[['fips']] <- sprintf('%05d', as.numeric(nssp_data[['fips']]));
                          write.csv(nssp_data, file = '$FILE_NAME', row.names = FALSE)"
         env:
           FILE_NAME: ${{ env.FILE_NAME }}
