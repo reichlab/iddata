@@ -49,9 +49,6 @@ jobs:
         run: echo "FILE_NAME=nssp-$(date +'%Y-%m-%d').csv" >> $GITHUB_ENV
 
       - name: Snapshot NSSP data
-        env:
-          FILE_NAME: ${{ env.FILE_NAME }}
-          PRELIMINARY: ${{ inputs.preliminary }}
         # download and process file
         # preliminary data on Wednesday; official data otherwise
         # (with option to override for preliminary data on manual runs)
@@ -67,6 +64,9 @@ jobs:
                          nssp_data <- nssp_data[c('week_end', 'geography', 'county', 'fips', 'hsa_nci_id', 'percent_visits_covid', 'percent_visits_influenza', 'percent_visits_rsv')];
                          nssp_data[['week_end']] <- substr(nssp_data[['week_end']], 1, 10);
                          write.csv(nssp_data, file = '$FILE_NAME', row.names = FALSE)"
+        env:
+          FILE_NAME: ${{ env.FILE_NAME }}
+          PRELIMINARY: ${{ inputs.preliminary }}
 
       - name: Configure AWS credentials
         # request credentials to assume the hub's AWS role via OpenID Connect
