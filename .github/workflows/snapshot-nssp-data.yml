@@ -63,6 +63,8 @@ jobs:
                          };
                          nssp_data <- nssp_data[c('week_end', 'geography', 'county', 'fips', 'hsa_nci_id', 'percent_visits_covid', 'percent_visits_influenza', 'percent_visits_rsv')];
                          nssp_data[['week_end']] <- substr(nssp_data[['week_end']], 1, 10);
+                         max_date <- lubridate::ymd(max(nssp_data[['week_end']]));
+                         if (max_date < lubridate::floor_date(Sys.Date(), 'week') - 1L) stop(paste0('Target data is out of date \nLatest date ', max_date));
                          write.csv(nssp_data, file = '$FILE_NAME', row.names = FALSE)"
         env:
           FILE_NAME: ${{ env.FILE_NAME }}
