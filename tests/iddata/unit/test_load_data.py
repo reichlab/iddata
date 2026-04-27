@@ -2,13 +2,11 @@ import datetime
 
 import numpy as np
 import pytest
-
 from iddata.loader import DiseaseDataLoader
 from iddata.sources.flusurvnet import FluSurvNetDataSource
 from iddata.sources.ilinet import ILINetDataSource
 from iddata.sources.nhsn import NHSNDataSource
 from iddata.sources.nssp import NSSPDataSource
-
 
 _DEFAULT_AS_OF = datetime.date.fromisoformat("2023-12-30")
 _NSSP_AS_OF = datetime.date.fromisoformat("2025-09-20")

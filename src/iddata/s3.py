@@ -2,7 +2,6 @@ import datetime
 
 import s3fs
 
-
 _S3_PREFIX = "infectious-disease-data/data-raw/"
 
 
