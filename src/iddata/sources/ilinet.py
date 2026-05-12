@@ -7,6 +7,7 @@ import pandas as pd
 from iddata.constants import PANDEMIC_SEASONS, S3_DATA_RAW_URL
 from iddata.enums import AggLevel, SourceType
 from iddata.sources.base import DataSource
+from iddata.utils import load_fips_mappings
 
 
 class ILINetDataSource(DataSource):
@@ -29,6 +30,7 @@ class ILINetDataSource(DataSource):
                  urljoin(S3_DATA_RAW_URL, "influenza-ilinet/ilinet_hhs.csv"),
                  urljoin(S3_DATA_RAW_URL, "influenza-ilinet/ilinet_state.csv")]
         dat = pd.concat([pd.read_csv(f, encoding="ISO-8859-1", engine="python") for f in files], axis=0)
+        # ILINet data is reported as a rate; use unweighted ILI for states, weighted for others
         dat["inc"] = np.where(dat["region_type"] == "States", dat["unweighted_ili"], dat["weighted_ili"])
         dat["wk_end_date"] = pd.to_datetime(dat["week_start"]) + pd.Timedelta(6, "days")
         dat = dat[["region_type", "region", "year", "week", "season", "season_week", "wk_end_date", "inc"]]
@@ -44,6 +46,7 @@ class ILINetDataSource(DataSource):
             | (dat.season.isin(first_report_season) & dat.season_week.isin(range(10, 53)))
             | (~dat.season.isin(early_seasons + first_report_season))
             ]
+        # region 10 data prior to 2010/11 is bad, drop it
         dat = dat[~((dat["location"] == "Region 10") & (dat["season"] < "2010/11"))]
 
         if self.scale_to_positive:
@@ -57,10 +60,11 @@ class ILINetDataSource(DataSource):
 
         dat = dat[["agg_level", "location", "season", "season_week", "wk_end_date", "inc"]]
 
-        # Aggregate to FIPS codes and handle NY
-        dat = self._aggregate_to_fips(dat)
-
+        # Apply ILINet-specific scaling before aggregating to FIPS so averaged values are on the scaled axis
+        dat["inc"] = (dat["inc"] + np.exp(-7)) * 4
         dat["source"] = SourceType.ILINET.value
+
+        dat = self._aggregate_to_fips(dat)
         return dat
 
 
@@ -74,12 +78,9 @@ class ILINetDataSource(DataSource):
 
 
     def _aggregate_to_fips(self, dat: pd.DataFrame) -> pd.DataFrame:
-        fips_mappings = pd.read_csv(urljoin(S3_DATA_RAW_URL, "fips-mappings/fips_mappings.csv"))
+        fips_mappings = load_fips_mappings()
         ilinet_nonstates = ["National", "Region 1", "Region 2", "Region 3", "Region 4", "Region 5", "Region 6",
                             "Region 7", "Region 8", "Region 9", "Region 10"]
-
-        # Apply ILINet-specific scaling
-        dat["inc"] = (dat["inc"] + np.exp(-7)) * 4
 
         df_by_state = (
             dat.loc[(~dat["location"].isin(ilinet_nonstates)) & (dat["location"] != "78")]
@@ -96,10 +97,10 @@ class ILINetDataSource(DataSource):
                 )
             )
             .merge(fips_mappings.rename(columns={"location": "fips"}), left_on="state", right_on="location_name")
-            .groupby(["state", "fips", "season", "season_week", "wk_end_date"])
-            .apply(lambda x: pd.DataFrame({"inc": [np.mean(x["inc"])]}))
+            .groupby(["state", "fips", "season", "season_week", "wk_end_date", "source"])
+            .agg(inc=("inc", "mean"))
             .reset_index()
-            .drop(columns=["state", "level_5"])
+            .drop(columns=["state"])
             .rename(columns={"fips": "location"})
             .assign(agg_level="state")
         )

@@ -1,14 +1,20 @@
 import datetime
+from urllib.parse import urljoin
 
 import numpy as np
 import pandas as pd
 import pymmwr
 from pandas.tseries.holiday import USFederalHolidayCalendar
 
+from iddata.constants import S3_DATA_RAW_URL
+
+
+def load_fips_mappings() -> pd.DataFrame:
+    return pd.read_csv(urljoin(S3_DATA_RAW_URL, "fips-mappings/fips_mappings.csv"))
+
 
 def date_to_ew_str(row, date_col_name="wk_end_date"):
     ew = pymmwr.date_to_epiweek(datetime.date.fromisoformat(row[date_col_name]))
-    # ew_str = pd.Series(str(ew.year) + str(ew.week))
     ew_str = str(ew.year) + str(ew.week)
     return ew_str
 

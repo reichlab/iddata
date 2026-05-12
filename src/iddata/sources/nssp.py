@@ -10,6 +10,7 @@ from iddata.constants import PANDEMIC_SEASONS, S3_DATA_RAW_URL
 from iddata.enums import AggLevel, Disease, SourceType
 from iddata.s3 import get_versioned_file_path
 from iddata.sources.base import DataSource
+from iddata.utils import load_fips_mappings
 
 
 class NSSPDataSource(DataSource):
@@ -38,7 +39,7 @@ class NSSPDataSource(DataSource):
 
         valid_diseases = (Disease.FLU, Disease.COVID, Disease.RSV)
         if self.disease not in valid_diseases:
-            raise ValueError(f"NSSP supports {valid_diseases}; got {self.disease}.")
+            raise ValueError(f"NSSPDataSource supports {valid_diseases}; got {self.disease}.")
 
         file_path = get_versioned_file_path(
             "infectious-disease-data/data-raw/nssp/nssp-????-??-??.csv",
@@ -61,7 +62,7 @@ class NSSPDataSource(DataSource):
         dat = dat[["geography", "hsa_nci_id", "week_end", inc_colname]]
         dat.columns = ["location_name", "hsa_nci_id", "wk_end_date", "inc"]
 
-        fips_mappings = pd.read_csv(urljoin(S3_DATA_RAW_URL, "fips-mappings/fips_mappings.csv"))
+        fips_mappings = load_fips_mappings()
         dat = dat.merge(fips_mappings, on=["location_name"], how="left") \
             .rename(columns={"location": "fips_code"})
 
@@ -78,11 +79,10 @@ class NSSPDataSource(DataSource):
         dat["agg_level"] = np.where(dat["fips_code"] == "US", "national", dat["agg_level"])
         dat["location"] = np.where(dat["hsa_nci_id"] == "All", dat["fips_code"], dat["hsa_nci_id"])
 
-        # Fill missing state-level data by averaging HSA values
+        dat["source"] = SourceType.NSSP.value
         dat = self._fill_missing_states(dat)
 
-        dat = dat[["agg_level", "location", "season", "season_week", "wk_end_date", "inc"]]
-        dat["source"] = SourceType.NSSP.value
+        dat = dat[["agg_level", "location", "season", "season_week", "wk_end_date", "inc", "source"]]
         return dat
 
 
@@ -95,7 +95,7 @@ class NSSPDataSource(DataSource):
         df_nssp_missing_states = (
             dat.loc[(~dat["fips_code"].isin(nonmissing_states)) & (dat["agg_level"] == "hsa")]
             .groupby(["fips_code", "season", "season_week", "wk_end_date", "source"])
-            .apply(lambda x: pd.DataFrame({"inc": [np.mean(x["inc"])]}))
+            .agg(inc=("inc", "mean"))
             .reset_index()
             .assign(agg_level="state")
         )

@@ -11,11 +11,11 @@ class DataSource(ABC):
     Abstract base class for a single disease surveillance data source.
 
     All implementations return a DataFrame with the standard schema:
-        location     (str):      FIPS code or other identifier
-        agg_level    (str):      aggregation level of the row
+        location     (str):      FIPS code, HHS region string, or HSA NCI ID
+        agg_level    (str):      aggregation level of the row, e.g. "state", "national", "hsa", "hhs region"
         wk_end_date  (datetime): Saturday end-of-week date
-        season       (str):      e.g., "2023/24"
-        season_week  (int):      weeks since week 30 of the prior year (1-based)
+        season       (str):      (northern hemisphere) infectious disease season, e.g., "2023/24"
+        season_week  (int):      weeks since MMWR week 30 of the prior year (1-based)
         inc          (float):    incidence in source-specific units
         source       (str):      source name (equals source_name.value)
     """

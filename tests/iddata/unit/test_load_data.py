@@ -18,9 +18,11 @@ def test_load_data_sources():
     cases = [([NHSNDataSource()], {"nhsn"}),
              ([NHSNDataSource(), ILINetDataSource()], {"nhsn", "ilinet"}),
              ([FluSurvNetDataSource()], {"flusurvnet"}),
-             ([FluSurvNetDataSource(), NHSNDataSource(), ILINetDataSource()], {"flusurvnet", "nhsn", "ilinet"})]
+             ([FluSurvNetDataSource(), NHSNDataSource(), ILINetDataSource()], {"flusurvnet", "nhsn", "ilinet"}),
+             ([NSSPDataSource()], {"nssp"})]
     for sources, expected_source_values in cases:
-        df = loader.load(sources=sources, as_of=_DEFAULT_AS_OF)
+        as_of = _NSSP_AS_OF if any(isinstance(s, NSSPDataSource) for s in sources) else _DEFAULT_AS_OF
+        df = loader.load(sources=sources, as_of=as_of)
         assert set(df["source"].unique()) == expected_source_values
 
 
@@ -92,7 +94,7 @@ def test_load_data_flusurvnet_kwargs(locations):
     loader = DiseaseDataLoader()
 
     df = loader.load(
-        sources=[FluSurvNetDataSource(locations=locations) if locations else FluSurvNetDataSource()],
+        sources=[FluSurvNetDataSource(locations=locations)],
         as_of=_DEFAULT_AS_OF,
     )
 

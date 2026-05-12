@@ -48,6 +48,11 @@ class TestNSSPDataSource:
         assert NSSPDataSource().disease == Disease.FLU
 
 
+    def test_custom_disease(self):
+        src = NSSPDataSource(disease=Disease.COVID)
+        assert src.disease == Disease.COVID
+
+
     def test_raises_if_as_of_none(self):
         src = NSSPDataSource()
         with pytest.raises((ValueError, TypeError)):
@@ -102,14 +107,10 @@ class TestDiseaseDataLoaderMerge:
                 "source": source_name,
                 "agg_level": "state",
                 "location": loc,
-                "season": "2023-24",
+                "season": "2023/24",
                 "season_week": 15,
                 "wk_end_date": pd.Timestamp("2024-01-06"),
                 "inc": 0.5,
-                "inc_trans": 0.5,
-                "inc_trans_scale_factor": 1.0,
-                "inc_trans_center_factor": 0.0,
-                "inc_trans_cs": 0.5,
             })
         return pd.DataFrame(rows)
 

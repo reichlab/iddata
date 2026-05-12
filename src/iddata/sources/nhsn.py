@@ -5,10 +5,12 @@ import numpy as np
 import pandas as pd
 
 from iddata import utils
+from iddata.ancillary.population import _load_us_census
 from iddata.constants import PANDEMIC_SEASONS, S3_DATA_RAW_URL
 from iddata.enums import Disease, SourceType
 from iddata.s3 import get_versioned_file_path
 from iddata.sources.base import DataSource
+from iddata.utils import load_fips_mappings
 
 
 class NHSNDataSource(DataSource):
@@ -32,29 +34,31 @@ class NHSNDataSource(DataSource):
         if isinstance(as_of, str):
             as_of = datetime.date.fromisoformat(as_of)
         if as_of < datetime.date.fromisoformat("2024-11-15"):
+            if not self.drop_pandemic_seasons:
+                raise NotImplementedError(
+                    "NHSNDataSource does not support drop_pandemic_seasons=False for as_of prior to 2024-11-15.")
             if self.disease != Disease.FLU:
                 raise NotImplementedError(
-                    f"NHSN via HHS archive (as_of < 2024-11-15) only supports Disease.FLU; got {self.disease}."
-                )
-            return self._load_from_hhs(as_of)
-        return self._load_from_nhsn(as_of)
+                    f"NHSNDataSource only supports Disease.FLU for as_of prior to 2024-11-15; got {self.disease}.")
+            dat = self._load_from_hhs(as_of)
+        else:
+            dat = self._load_from_nhsn(as_of)
+        return self._postprocess(dat)
 
 
-    def _load_from_hhs(self, as_of: datetime.date) -> pd.DataFrame:
-        file_path = get_versioned_file_path(
-            "infectious-disease-data/data-raw/influenza-hhs/hhs-????-??-??.csv",
-            as_of)
-        dat = pd.read_csv(urljoin(S3_DATA_RAW_URL, file_path))
-        dat.rename(columns={"date": "wk_end_date"}, inplace=True)
-
+    def _postprocess(self, dat: pd.DataFrame) -> pd.DataFrame:
+        """Apply shared postprocessing: epiweek columns, pandemic drop, rates, datetime, agg_level."""
         ew_str = dat.apply(utils.date_to_ew_str, axis=1)
         dat["season"] = utils.convert_epiweek_to_season(ew_str)
         dat["season_week"] = utils.convert_epiweek_to_season_week(ew_str)
         dat = dat.sort_values(by=["season", "season_week"])
 
+        if self.drop_pandemic_seasons:
+            dat.loc[dat["season"].isin(PANDEMIC_SEASONS), "inc"] = np.nan
+
         if self.rates:
             pops = _load_us_census()
-            dat = dat.merge(pops, on=["location", "season"], how="left") \
+            dat = dat.merge(pops[["location", "season", "pop"]], on=["location", "season"], how="left") \
                 .assign(inc=lambda x: x["inc"] / x["pop"] * 100000)
 
         dat["wk_end_date"] = pd.to_datetime(dat["wk_end_date"])
@@ -64,9 +68,20 @@ class NHSNDataSource(DataSource):
         return dat
 
 
+    def _load_from_hhs(self, as_of: datetime.date) -> pd.DataFrame:
+        """Returns raw DataFrame with location, wk_end_date, inc columns."""
+        file_path = get_versioned_file_path(
+            "infectious-disease-data/data-raw/influenza-hhs/hhs-????-??-??.csv",
+            as_of)
+        dat = pd.read_csv(urljoin(S3_DATA_RAW_URL, file_path))
+        dat.rename(columns={"date": "wk_end_date"}, inplace=True)
+        return dat[["location", "wk_end_date", "inc"]]
+
+
     def _load_from_nhsn(self, as_of: datetime.date) -> pd.DataFrame:
+        """Returns raw DataFrame with location, wk_end_date, inc columns."""
         if self.disease not in (Disease.FLU, Disease.COVID):
-            raise ValueError("NHSN supports only Disease.FLU and Disease.COVID.")
+            raise ValueError("NHSNDataSource supports only Disease.FLU and Disease.COVID.")
 
         file_path = get_versioned_file_path(
             "infectious-disease-data/data-raw/influenza-nhsn/nhsn-????-??-??.csv",
@@ -81,76 +96,6 @@ class NHSNDataSource(DataSource):
         dat.columns = ["abbreviation", "wk_end_date", "inc"]
         dat.loc[dat["abbreviation"] == "USA", "abbreviation"] = "US"
 
-        fips_mappings = pd.read_csv(urljoin(S3_DATA_RAW_URL, "fips-mappings/fips_mappings.csv"))
+        fips_mappings = load_fips_mappings()
         dat = dat.merge(fips_mappings, on=["abbreviation"], how="left")
-
-        ew_str = dat.apply(utils.date_to_ew_str, axis=1)
-        dat["season"] = utils.convert_epiweek_to_season(ew_str)
-        dat["season_week"] = utils.convert_epiweek_to_season_week(ew_str)
-        dat = dat.sort_values(by=["season", "season_week"])
-
-        if self.drop_pandemic_seasons:
-            dat.loc[dat["season"].isin(PANDEMIC_SEASONS), "inc"] = np.nan
-
-        if self.rates:
-            pops = _load_us_census()
-            dat = dat.merge(pops, on=["location", "season"], how="left") \
-                .assign(inc=lambda x: x["inc"] / x["pop"] * 100000)
-
-        dat["wk_end_date"] = pd.to_datetime(dat["wk_end_date"])
-        dat["agg_level"] = np.where(dat["location"] == "US", "national", "state")
-        dat = dat[["agg_level", "location", "season", "season_week", "wk_end_date", "inc"]]
-        dat["source"] = SourceType.NHSN.value
-        return dat
-
-
-def _load_us_census() -> pd.DataFrame:
-    """Load US Census population data (location × season)."""
-    from itertools import product
-
-    def _load_one(f):
-        dat = pd.read_csv(f, engine="python", dtype={"STATE": str})
-        dat = dat.loc[(dat["NAME"] == "United States") | (dat["STATE"] != "00"),
-                      (dat.columns == "STATE") | (dat.columns.str.startswith("POPESTIMATE"))]
-        dat = dat.melt(id_vars="STATE", var_name="season", value_name="pop")
-        dat.rename(columns={"STATE": "location"}, inplace=True)
-        dat.loc[dat["location"] == "00", "location"] = "US"
-        dat["season"] = dat["season"].str[-4:]
-        dat["season"] = dat["season"] + "/" + (dat["season"].str[-2:].astype(int) + 1).astype(str)
-        return dat
-
-
-    files = [urljoin(S3_DATA_RAW_URL, "us-census/nst-est2019-alldata.csv"),
-             urljoin(S3_DATA_RAW_URL, "us-census/NST-EST2023-ALLDATA.csv")]
-    us_pops = pd.concat([_load_one(f) for f in files], axis=0)
-
-    fips_mappings = pd.read_csv(urljoin(S3_DATA_RAW_URL, "fips-mappings/fips_mappings.csv"))
-    hhs_pops = (
-        us_pops.query("location != 'US'")
-        .merge(
-            fips_mappings.query("location != 'US'")
-            .assign(hhs_region=lambda x: "Region " + x["hhs_region"].astype(int).astype(str)),
-            on="location",
-            how="left",
-        )
-        .groupby(["hhs_region", "season"])["pop"]
-        .sum()
-        .reset_index()
-        .rename(columns={"hhs_region": "location"})
-    )
-    dat = pd.concat([us_pops, hhs_pops], axis=0)
-
-    all_locations = dat["location"].unique()
-    all_seasons = [str(y) + "/" + str(y + 1)[-2:] for y in range(1997, 2026)]
-    full_result = pd.DataFrame.from_records(product(all_locations, all_seasons))
-    full_result.columns = ["location", "season"]
-    dat = (
-        full_result.merge(dat, how="left", on=["location", "season"])
-        .set_index("location")
-        .groupby(["location"])
-        .bfill()
-        .groupby(["location"])
-        .ffill()
-        .reset_index()
-    )
-    return dat
+        return dat[["location", "wk_end_date", "inc"]]

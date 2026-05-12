@@ -6,9 +6,11 @@ import pandas as pd
 import pymmwr
 
 from iddata import utils
+from iddata.ancillary.population import _load_us_census
 from iddata.constants import S3_DATA_RAW_URL
 from iddata.enums import AggLevel, SourceType
 from iddata.sources.base import DataSource
+from iddata.utils import load_fips_mappings
 
 
 class FluSurvNetDataSource(DataSource):
@@ -107,7 +109,7 @@ class FluSurvNetDataSource(DataSource):
         burden_adj = dat[dat["location"] == "Entire Network"].groupby("season")["inc"].sum().reset_index()
         burden_adj.columns = ["season", "cum_rate"]
 
-        us_census = _load_us_census_for_flusurv()
+        us_census = _load_us_census().query("location == 'US'").drop("location", axis=1)
         burden_adj = pd.merge(burden_adj, us_census, on="season")
 
         burden_estimates = pd.read_csv(urljoin(S3_DATA_RAW_URL, "burden-estimates/burden-estimates.csv"),
@@ -121,15 +123,15 @@ class FluSurvNetDataSource(DataSource):
 
 
     def _fill_missing_dates(self, location_df: pd.DataFrame) -> pd.DataFrame:
-        df = location_df.set_index("wk_end_date").asfreq("W-sat").reset_index()
-        fill_cols = ["agg_level", "location", "season", "pop", "source"]
+        df = location_df.set_index("wk_end_date").asfreq("W-SAT").reset_index()
+        fill_cols = ["agg_level", "location", "season", "source"]
         fill_cols = [c for c in fill_cols if c in df.columns]
-        df[fill_cols] = df[fill_cols].fillna(axis=0, method="ffill")
+        df[fill_cols] = df[fill_cols].ffill()
         return df
 
 
     def _aggregate_to_fips(self, dat: pd.DataFrame) -> pd.DataFrame:
-        fips_mappings = pd.read_csv(urljoin(S3_DATA_RAW_URL, "fips-mappings/fips_mappings.csv"))
+        fips_mappings = load_fips_mappings()
         df_by_state = (
             dat.loc[dat["location"] != "Entire Network"]
             .assign(
@@ -141,9 +143,8 @@ class FluSurvNetDataSource(DataSource):
             )
             .merge(fips_mappings.rename(columns={"location": "fips"}), left_on="state", right_on="location_name")
             .groupby(["fips", "season", "season_week", "wk_end_date", "source"])
-            .apply(lambda x: pd.DataFrame({"inc": [np.mean(x["inc"])]}))
+            .agg(inc=("inc", "mean"))
             .reset_index()
-            .drop(columns=["level_5"])
             .rename(columns={"fips": "location"})
             .assign(agg_level="state")
         )
@@ -151,9 +152,3 @@ class FluSurvNetDataSource(DataSource):
         df_national = dat.loc[dat["location"] == "Entire Network"].copy()
         df_national["location"] = "US"
         return pd.concat([df_national, df_by_state], axis=0)
-
-
-def _load_us_census_for_flusurv() -> pd.DataFrame:
-    """Load US-level population data (for burden adjustment)."""
-    from iddata.sources.nhsn import _load_us_census
-    return _load_us_census().query("location == 'US'").drop("location", axis=1)
