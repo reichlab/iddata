@@ -19,7 +19,9 @@ def test_load_data_sources():
              ([NHSNDataSource(), ILINetDataSource()], {"nhsn", "ilinet"}),
              ([FluSurvNetDataSource()], {"flusurvnet"}),
              ([FluSurvNetDataSource(), NHSNDataSource(), ILINetDataSource()], {"flusurvnet", "nhsn", "ilinet"}),
-             ([NSSPDataSource()], {"nssp"})]
+             ([NSSPDataSource()], {"nssp"}),
+             ([NHSNDataSource(), ILINetDataSource(), FluSurvNetDataSource(), NSSPDataSource()],
+              {"nhsn", "ilinet", "flusurvnet", "nssp"})]
     for sources, expected_source_values in cases:
         as_of = _NSSP_AS_OF if any(isinstance(s, NSSPDataSource) for s in sources) else _DEFAULT_AS_OF
         df = loader.load(sources=sources, as_of=as_of)
