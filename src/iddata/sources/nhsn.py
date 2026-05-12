@@ -43,11 +43,7 @@ class NHSNDataSource(DataSource):
             dat = self._load_from_hhs(as_of)
         else:
             dat = self._load_from_nhsn(as_of)
-        return self._postprocess(dat)
 
-
-    def _postprocess(self, dat: pd.DataFrame) -> pd.DataFrame:
-        """Apply shared postprocessing: epiweek columns, pandemic drop, rates, datetime, agg_level."""
         ew_str = dat.apply(utils.date_to_ew_str, axis=1)
         dat["season"] = utils.convert_epiweek_to_season(ew_str)
         dat["season_week"] = utils.convert_epiweek_to_season_week(ew_str)
