@@ -29,25 +29,22 @@ class NHSNDataSource(DataSource):
         2024-11-15, or the NHSN source for later dates.
         """
         if as_of is None:
-            raise ValueError("NHSNDataSource requires as_of to be specified.")
+            raise ValueError("NHSN requires as_of to be specified.")
 
         if isinstance(as_of, str):
             as_of = datetime.date.fromisoformat(as_of)
         if as_of < datetime.date.fromisoformat("2024-11-15"):
             if not self.drop_pandemic_seasons:
                 raise NotImplementedError(
-                    "NHSNDataSource does not support drop_pandemic_seasons=False for as_of prior to 2024-11-15.")
+                    "Functionality for loading all seasons of NHSN data with specified as_of date is not implemented.")
             if self.disease != Disease.FLU:
                 raise NotImplementedError(
-                    f"NHSNDataSource only supports Disease.FLU for as_of prior to 2024-11-15; got {self.disease}.")
+                    f"NHSN only supports disease='flu' for an as_of date prior to 2024-11-15; got {self.disease}.")
             dat = self._load_from_hhs(as_of)
         else:
             dat = self._load_from_nhsn(as_of)
 
-        ew_str = dat.apply(utils.date_to_ew_str, axis=1)
-        dat["season"] = utils.convert_epiweek_to_season(ew_str)
-        dat["season_week"] = utils.convert_epiweek_to_season_week(ew_str)
-        dat = dat.sort_values(by=["season", "season_week"])
+        dat = utils.add_season_columns(dat)
 
         if self.drop_pandemic_seasons:
             dat.loc[dat["season"].isin(PANDEMIC_SEASONS), "inc"] = np.nan
@@ -61,6 +58,7 @@ class NHSNDataSource(DataSource):
         dat["agg_level"] = np.where(dat["location"] == "US", "national", "state")
         dat = dat[["agg_level", "location", "season", "season_week", "wk_end_date", "inc"]]
         dat["source"] = SourceType.NHSN.value
+        dat["inc"] = dat["inc"] + 0.75 ** 4
         return dat
 
 
@@ -77,7 +75,7 @@ class NHSNDataSource(DataSource):
     def _load_from_nhsn(self, as_of: datetime.date) -> pd.DataFrame:
         """Returns raw DataFrame with location, wk_end_date, inc columns."""
         if self.disease not in (Disease.FLU, Disease.COVID):
-            raise ValueError("NHSNDataSource supports only Disease.FLU and Disease.COVID.")
+            raise ValueError("NHSN supports only Disease.FLU and Disease.COVID.")
 
         file_path = get_versioned_file_path(
             "infectious-disease-data/data-raw/influenza-nhsn/nhsn-????-??-??.csv",

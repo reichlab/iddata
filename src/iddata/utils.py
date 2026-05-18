@@ -62,6 +62,14 @@ def convert_epiweek_to_season(epiweek):
     return season
 
 
+def add_season_columns(dat: pd.DataFrame) -> pd.DataFrame:
+    """Add season and season_week columns from wk_end_date, then sort."""
+    ew_str = dat.apply(date_to_ew_str, axis=1)
+    dat["season"] = convert_epiweek_to_season(ew_str)
+    dat["season_week"] = convert_epiweek_to_season_week(ew_str)
+    return dat.sort_values(by=["season", "season_week"])
+
+
 def convert_datetime_to_season_week(row, date_col_name):
     ew = pymmwr.date_to_epiweek(row[date_col_name].date())
     ew_str = pd.Series(str(ew.year) + str(ew.week))

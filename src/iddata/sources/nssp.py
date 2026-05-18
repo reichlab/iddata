@@ -30,16 +30,16 @@ class NSSPDataSource(DataSource):
         2025-09-17. Returns all available granularities (state + HSA rows).
         """
         if as_of is None:
-            raise ValueError("NSSPDataSource requires as_of to be specified.")
+            raise ValueError("NSSP requires as_of to be specified.")
 
         if isinstance(as_of, str):
             as_of = datetime.date.fromisoformat(as_of)
         if as_of < datetime.date.fromisoformat("2025-09-17"):
-            raise NotImplementedError("NSSPDataSource only supports as_of >= 2025-09-17.")
+            raise NotImplementedError("NSSP only supports as_of >= 2025-09-17.")
 
         valid_diseases = (Disease.FLU, Disease.COVID, Disease.RSV)
         if self.disease not in valid_diseases:
-            raise ValueError(f"NSSPDataSource supports {valid_diseases}; got {self.disease}.")
+            raise ValueError(f"NSSP supports {valid_diseases}; got {self.disease}.")
 
         file_path = get_versioned_file_path(
             "infectious-disease-data/data-raw/nssp/nssp-????-??-??.csv",
@@ -66,10 +66,7 @@ class NSSPDataSource(DataSource):
         dat = dat.merge(fips_mappings, on=["location_name"], how="left") \
             .rename(columns={"location": "fips_code"})
 
-        ew_str = dat.apply(utils.date_to_ew_str, axis=1)
-        dat["season"] = utils.convert_epiweek_to_season(ew_str)
-        dat["season_week"] = utils.convert_epiweek_to_season_week(ew_str)
-        dat = dat.sort_values(by=["season", "season_week"])
+        dat = utils.add_season_columns(dat)
 
         if self.drop_pandemic_seasons:
             dat.loc[dat["season"].isin(PANDEMIC_SEASONS), "inc"] = np.nan
