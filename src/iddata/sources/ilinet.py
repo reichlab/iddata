@@ -31,6 +31,7 @@ class ILINetDataSource(DataSource):
                  urljoin(S3_DATA_RAW_URL, "influenza-ilinet/ilinet_state.csv")]
         dat = pd.concat([pd.read_csv(f, encoding="ISO-8859-1", engine="python") for f in files], axis=0)
         # ILINet data is reported as a rate; use unweighted ILI for states, weighted for others
+        # Functionality for using raw `ilitotal` counts (never used in practice) has been removed
         dat["inc"] = np.where(dat["region_type"] == "States", dat["unweighted_ili"], dat["weighted_ili"])
         dat["wk_end_date"] = pd.to_datetime(dat["week_start"]) + pd.Timedelta(6, "days")
         dat = dat[["region_type", "region", "year", "week", "season", "season_week", "wk_end_date", "inc"]]
