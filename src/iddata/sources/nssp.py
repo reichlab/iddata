@@ -53,15 +53,20 @@ class NSSPDataSource(DataSource):
         else:
             inc_colname = "percent_visits_rsv"
 
+        # filter, for each hsa_nci_id (excluding states) to include one value per week
+        # because some that contain multiple counties are duplicated in the data
+        # also, here `fips` is the full 6-digit code
         dat = (
             dat.sort_values(by=["fips", "hsa_nci_id", "week_end"], ascending=[True, True, False])
             .assign(unique_id=lambda x: np.where(x["hsa_nci_id"] == "All", x["fips"], x["hsa_nci_id"]))
             .drop_duplicates(subset=["unique_id", "week_end"], keep="first")
         )
 
+        # keep hsa_nci_id as this is the location code we will be indexing on
         dat = dat[["geography", "hsa_nci_id", "week_end", inc_colname]]
         dat.columns = ["location_name", "hsa_nci_id", "wk_end_date", "inc"]
 
+        # get to location codes / (2-digit) FIPS
         fips_mappings = load_fips_mappings()
         dat = dat.merge(fips_mappings, on=["location_name"], how="left") \
             .rename(columns={"location": "fips_code"})
@@ -84,11 +89,13 @@ class NSSPDataSource(DataSource):
 
 
     def _fill_missing_states(self, dat: pd.DataFrame) -> pd.DataFrame:
+        # pull out already-aggregated locations
         df_nssp_states = dat.loc[(dat["agg_level"] == "state") & (~np.isnan(dat["inc"]))]
         nonmissing_states = df_nssp_states["fips_code"].unique()
-        if len(nonmissing_states) >= 50:
+        if len(nonmissing_states) >= 50: # 49 states (no MO) + PR
             return dat
 
+        # fill in missing data by averaging nssp hsa values for a particular state
         df_nssp_missing_states = (
             dat.loc[(~dat["fips_code"].isin(nonmissing_states)) & (dat["agg_level"] == "hsa")]
             .groupby(["fips_code", "season", "season_week", "wk_end_date", "source"])

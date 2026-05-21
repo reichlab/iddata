@@ -90,6 +90,7 @@ class NHSNDataSource(DataSource):
         dat.columns = ["abbreviation", "wk_end_date", "inc"]
         dat.loc[dat["abbreviation"] == "USA", "abbreviation"] = "US"
 
+        # get to location codes/FIPS
         fips_mappings = load_fips_mappings()
         dat = dat.merge(fips_mappings, on=["abbreviation"], how="left")
         return dat[["location", "wk_end_date", "inc"]]

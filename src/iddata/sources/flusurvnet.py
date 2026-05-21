@@ -36,6 +36,7 @@ class FluSurvNetDataSource(DataSource):
         seasons = ["20" + str(yy) + "/" + str(yy + 1) for yy in range(10, 23)]
         dat = self._load_base(seasons=seasons, locations=self.locations)
 
+        # if requested, make adjustments for overall season burden
         if self.burden_adj:
             hosp_burden_adj = self._calc_hosp_burden_adj()
             dat = pd.merge(dat, hosp_burden_adj, on="season")
@@ -70,6 +71,7 @@ class FluSurvNetDataSource(DataSource):
         dat_old["wk_end_date"] = pd.to_datetime(dat_old["wk_end"])
         dat_old = dat_old[["agg_level", "location", "season", "season_week", "wk_end_date", "inc"]]
 
+        # get data from 2022/23 season
         dat_new = pd.read_csv(urljoin(S3_DATA_RAW_URL, "influenza-flusurv/flusurv-rates/flusurv-rates-2022-23.csv"),
                               encoding="ISO-8859-1", engine="python")
         dat_new.columns = dat_new.columns.str.lower()
@@ -131,6 +133,7 @@ class FluSurvNetDataSource(DataSource):
 
 
     def _aggregate_to_fips(self, dat: pd.DataFrame) -> pd.DataFrame:
+        # aggregate flusurv sites in New York to state level, mainly to facilitate adding populations
         fips_mappings = load_fips_mappings()
         df_by_state = (
             dat.loc[dat["location"] != "Entire Network"]
