@@ -56,8 +56,6 @@ class ILINetDataSource(DataSource):
 
         dat = dat[["agg_level", "location", "season", "season_week", "wk_end_date", "inc"]]
 
-        # Apply ILINet-specific scaling before aggregating to FIPS so averaged values are on the scaled axis
-        dat["inc"] = (dat["inc"] + np.exp(-7)) * 4
         dat["source"] = SourceType.ILINET.value
 
         dat = self._aggregate_to_fips(dat)

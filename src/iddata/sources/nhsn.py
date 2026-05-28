@@ -51,7 +51,6 @@ class NHSNDataSource(DataSource):
         dat["agg_level"] = np.where(dat["location"] == "US", "national", "state")
         dat = dat[["agg_level", "location", "season", "season_week", "wk_end_date", "inc"]]
         dat["source"] = SourceType.NHSN.value
-        dat["inc"] = dat["inc"] + 0.75 ** 4
         return dat
 
 

@@ -47,9 +47,6 @@ class FluSurvNetDataSource(DataSource):
         dat = pd.concat([self._fill_missing_dates(df) for _, df in gd], axis=0)
         dat = dat[["agg_level", "location", "season", "season_week", "wk_end_date", "inc", "source"]]
 
-        # Apply FluSurvNet-specific scaling
-        dat["inc"] = (dat["inc"] + np.exp(-3)) / 2.5
-
         # Aggregate to FIPS codes
         dat = self._aggregate_to_fips(dat)
 

@@ -54,5 +54,10 @@ inline-quotes = "double"
 [tool.ruff.format]
 quote-style = "double"
 
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+]
+
 [tool.setuptools.dynamic]
 version = { attr = "iddata.__version__" }
