@@ -1,6 +1,7 @@
 """Unit tests for iddata DataSource classes (constructor, source_name, validation)."""
 
 import datetime
+import warnings
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -27,10 +28,6 @@ class TestNHSNDataSource:
     def test_custom_disease(self):
         src = NHSNDataSource(disease=Disease.COVID)
         assert src.disease == Disease.COVID
-
-
-    def test_drop_pandemic_seasons_default(self):
-        assert NHSNDataSource().drop_pandemic_seasons is True
 
 
     def test_raises_if_as_of_none(self):
@@ -71,10 +68,6 @@ class TestILINetDataSource:
     def test_custom_scale(self):
         src = ILINetDataSource(scale_to_positive=False)
         assert src.scale_to_positive is False
-
-
-    def test_drop_pandemic_default(self):
-        assert ILINetDataSource().drop_pandemic_seasons is True
 
 
 class TestFluSurvNetDataSource:
@@ -170,3 +163,27 @@ class TestDiseaseDataLoaderMerge:
         hsa_rows = df[df["agg_level"] == "hsa"]
         assert hsa_rows["pop"].isna().all()
         assert hsa_rows["log_pop"].isna().all()
+
+
+    def test_warns_when_nhsn_hhs_and_drop_pandemic_false(self):
+        src = self._make_mock_source("nhsn")
+        src.source_name = SourceType.NHSN
+        loader = DiseaseDataLoader()
+        with pytest.warns(UserWarning, match="does not contain complete data during pandemic seasons"):
+            loader.load(sources=[src], as_of=datetime.date(2023, 1, 1), drop_pandemic_seasons=False)
+
+
+    def test_no_warn_when_drop_pandemic_true_or_recent_as_of(self):
+        loader = DiseaseDataLoader()
+
+        src = self._make_mock_source("nhsn")
+        src.source_name = SourceType.NHSN
+        # no warning when drop_pandemic_seasons=True (default), even with old as_of
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            loader.load(sources=[src], as_of=datetime.date(2023, 1, 1), drop_pandemic_seasons=True)
+
+        # no warning when as_of >= 2024-11-15, even with drop_pandemic_seasons=False
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            loader.load(sources=[src], as_of=datetime.date(2024, 11, 15), drop_pandemic_seasons=False)

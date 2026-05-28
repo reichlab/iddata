@@ -1,9 +1,12 @@
 import datetime
+import warnings
 
 import numpy as np
 import pandas as pd
 
 from iddata.ancillary.base import AncillaryData
+from iddata.constants import PANDEMIC_SEASONS
+from iddata.enums import SourceType
 from iddata.sources.base import DataSource
 
 
@@ -14,7 +17,8 @@ class DiseaseDataLoader:
 
 
     def load(self, sources: list[DataSource], as_of: datetime.date,
-             ancillary: list[AncillaryData] | None = None) -> pd.DataFrame:
+             ancillary: list[AncillaryData] | None = None,
+             drop_pandemic_seasons: bool = True) -> pd.DataFrame:
         """
         Load and merge data from the specified sources, plus any ancillary data. Does NOT apply power transforms or
         center/scale normalization.
@@ -28,9 +32,21 @@ class DiseaseDataLoader:
         ancillary : list[AncillaryData] | None
             Supplementary data merged into the result by location (left join).
             Typically [PopulationData()] for models that need pop and log_pop.
+        drop_pandemic_seasons : bool
+            If True (default), set inc to NaN for pandemic seasons across all sources.
         """
+        if not drop_pandemic_seasons and as_of < datetime.date(2024, 11, 15) and \
+                any(src.source_name == SourceType.NHSN for src in sources):
+            warnings.warn(
+                "NHSN does not contain complete data during pandemic seasons for an as_of date before 2024-11-15."
+            )
+
         frames = [src.load(as_of=as_of) for src in sources]
         df = pd.concat(frames, axis=0).sort_values(["source", "location", "wk_end_date"])
+
+        if drop_pandemic_seasons:
+            df.loc[df["season"].isin(PANDEMIC_SEASONS), "inc"] = np.nan
+
         if ancillary:
             for anc in ancillary:
                 anc_df = anc.load()

@@ -6,7 +6,7 @@ import pandas as pd
 
 from iddata import utils
 from iddata.ancillary.population import _load_us_census
-from iddata.constants import PANDEMIC_SEASONS, S3_DATA_RAW_URL
+from iddata.constants import S3_DATA_RAW_URL
 from iddata.enums import Disease, SourceType
 from iddata.s3 import get_versioned_file_path
 from iddata.sources.base import DataSource
@@ -17,10 +17,9 @@ class NHSNDataSource(DataSource):
     source_name = SourceType.NHSN
 
 
-    def __init__(self, disease: Disease = Disease.FLU, rates: bool = True, drop_pandemic_seasons: bool = True):
+    def __init__(self, disease: Disease = Disease.FLU, rates: bool = True):
         self.disease = disease
         self.rates = rates
-        self.drop_pandemic_seasons = drop_pandemic_seasons
 
 
     def load(self, as_of: datetime.date | None = None) -> pd.DataFrame:
@@ -34,9 +33,6 @@ class NHSNDataSource(DataSource):
         if isinstance(as_of, str):
             as_of = datetime.date.fromisoformat(as_of)
         if as_of < datetime.date.fromisoformat("2024-11-15"):
-            if not self.drop_pandemic_seasons:
-                raise NotImplementedError(
-                    "Functionality for loading all seasons of NHSN data with specified as_of date is not implemented.")
             if self.disease != Disease.FLU:
                 raise NotImplementedError(
                     f"NHSN only supports disease='flu' for an as_of date prior to 2024-11-15; got {self.disease}.")
@@ -45,9 +41,6 @@ class NHSNDataSource(DataSource):
             dat = self._load_from_nhsn(as_of)
 
         dat = utils.add_season_columns(dat)
-
-        if self.drop_pandemic_seasons:
-            dat.loc[dat["season"].isin(PANDEMIC_SEASONS), "inc"] = np.nan
 
         if self.rates:
             pops = _load_us_census()

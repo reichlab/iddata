@@ -59,8 +59,9 @@ def test_load_data_nhsn_kwargs(drop_pandemic, as_of, season_expected, wk_end_dat
     loader = DiseaseDataLoader()
 
     df = loader.load(
-        sources=[NHSNDataSource(drop_pandemic_seasons=drop_pandemic)],
+        sources=[NHSNDataSource()],
         as_of=as_of,
+        drop_pandemic_seasons=drop_pandemic,
     )
 
     assert df.dropna()["season"].min() == season_expected
@@ -79,8 +80,9 @@ def test_load_data_ilinet_kwargs(drop_pandemic, expect_all_na):
     loader = DiseaseDataLoader()
 
     df = loader.load(
-        sources=[ILINetDataSource(drop_pandemic_seasons=drop_pandemic)],
+        sources=[ILINetDataSource()],
         as_of=_DEFAULT_AS_OF,
+        drop_pandemic_seasons=drop_pandemic,
     )
 
     if expect_all_na:
@@ -116,8 +118,9 @@ def test_load_data_nssp_kwargs(drop_pandemic, as_of, season_expected, wk_end_dat
     loader = DiseaseDataLoader()
 
     df = loader.load(
-        sources=[NSSPDataSource(drop_pandemic_seasons=drop_pandemic)],
+        sources=[NSSPDataSource()],
         as_of=as_of,
+        drop_pandemic_seasons=drop_pandemic,
     )
 
     assert df["season"].min() == season_expected

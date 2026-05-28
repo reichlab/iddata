@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 from iddata import utils
-from iddata.constants import PANDEMIC_SEASONS, S3_DATA_RAW_URL
+from iddata.constants import S3_DATA_RAW_URL
 from iddata.enums import AggLevel, Disease, SourceType
 from iddata.s3 import get_versioned_file_path
 from iddata.sources.base import DataSource
@@ -17,10 +17,8 @@ class NSSPDataSource(DataSource):
     source_name = SourceType.NSSP
 
 
-    def __init__(self, disease: Disease = Disease.FLU, drop_pandemic_seasons: bool = True,
-                 agg_level: AggLevel = AggLevel.STATE):
+    def __init__(self, disease: Disease = Disease.FLU, agg_level: AggLevel = AggLevel.STATE):
         self.disease = disease
-        self.drop_pandemic_seasons = drop_pandemic_seasons
         self.agg_level = agg_level
 
 
@@ -72,9 +70,6 @@ class NSSPDataSource(DataSource):
             .rename(columns={"location": "fips_code"})
 
         dat = utils.add_season_columns(dat)
-
-        if self.drop_pandemic_seasons:
-            dat.loc[dat["season"].isin(PANDEMIC_SEASONS), "inc"] = np.nan
 
         dat["wk_end_date"] = pd.to_datetime(dat["wk_end_date"])
         dat["agg_level"] = np.where(dat["hsa_nci_id"] == "All", "state", "hsa")

@@ -4,7 +4,7 @@ from urllib.parse import urljoin
 import numpy as np
 import pandas as pd
 
-from iddata.constants import PANDEMIC_SEASONS, S3_DATA_RAW_URL
+from iddata.constants import S3_DATA_RAW_URL
 from iddata.enums import AggLevel, SourceType
 from iddata.sources.base import DataSource
 from iddata.utils import load_fips_mappings
@@ -14,11 +14,9 @@ class ILINetDataSource(DataSource):
     source_name = SourceType.ILINET
 
 
-    def __init__(self, scale_to_positive: bool = True, agg_level: AggLevel = AggLevel.STATE,
-                 drop_pandemic_seasons: bool = True):
+    def __init__(self, scale_to_positive: bool = True, agg_level: AggLevel = AggLevel.STATE):
         self.scale_to_positive = scale_to_positive
         self.agg_level = agg_level
-        self.drop_pandemic_seasons = drop_pandemic_seasons
 
 
     def load(self, as_of: datetime.date | None = None) -> pd.DataFrame:
@@ -55,9 +53,6 @@ class ILINetDataSource(DataSource):
             dat = pd.merge(left=dat, right=nrevss, how="left", on=["agg_level", "location", "season", "season_week"])
             dat["inc"] = dat["inc"] * dat["percent_positive"] / 100.0
             dat.drop("percent_positive", axis=1, inplace=True)
-
-        if self.drop_pandemic_seasons:
-            dat.loc[dat["season"].isin(PANDEMIC_SEASONS), "inc"] = np.nan
 
         dat = dat[["agg_level", "location", "season", "season_week", "wk_end_date", "inc"]]
 
