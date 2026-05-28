@@ -44,6 +44,7 @@ def test_nssp_locations(select_date, select_locations, expected_agg_levels):
     df = loader.load(sources=[NSSPDataSource()], as_of=_NSSP_AS_OF)
     subset_df = df.loc[(df["wk_end_date"] == select_date) & (df["location"].isin(select_locations))]
 
+    # Get actual aggregation levels as a sorted list to preserve duplicates
     actual_agg_levels = sorted(subset_df["agg_level"].tolist())
     expected_agg_levels_sorted = sorted(expected_agg_levels)
 
@@ -85,6 +86,7 @@ def test_load_data_ilinet_kwargs(drop_pandemic, expect_all_na):
     if expect_all_na:
         assert np.all(df.loc[df["season"].isin(["2008/09", "2009/10", "2020/21", "2021/22"]), "inc"].isna())
     else:
+        # expect some non-NA values in pandemic seasons
         assert np.any(~df.loc[df["season"].isin(["2008/09", "2009/10", "2020/21", "2021/22"]), "inc"].isna())
 
 
