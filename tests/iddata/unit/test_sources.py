@@ -187,3 +187,30 @@ class TestDiseaseDataLoaderMerge:
         with warnings.catch_warnings():
             warnings.simplefilter("error", UserWarning)
             loader.load(sources=[src], as_of=datetime.date(2024, 11, 15), drop_pandemic_seasons=False)
+
+
+    def test_warns_when_flusurvnet_burden_adj_and_drop_pandemic_false(self):
+        src = self._make_mock_source("flusurvnet")
+        src.source_name = SourceType.FLUSURVNET
+        src.burden_adj = True
+        loader = DiseaseDataLoader()
+        with pytest.warns(UserWarning, match="burden adjustment estimates do not exist for pandemic seasons"):
+            loader.load(sources=[src], as_of=datetime.date(2023, 1, 1), drop_pandemic_seasons=False)
+
+
+    def test_no_warn_when_flusurvnet_drop_pandemic_true_or_no_burden_adj(self):
+        loader = DiseaseDataLoader()
+
+        src = self._make_mock_source("flusurvnet")
+        src.source_name = SourceType.FLUSURVNET
+        src.burden_adj = True
+        # no warning when drop_pandemic_seasons=True, even with burden_adj=True
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            loader.load(sources=[src], as_of=datetime.date(2023, 1, 1), drop_pandemic_seasons=True)
+
+        src.burden_adj = False
+        # no warning when burden_adj=False, even with drop_pandemic_seasons=False
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            loader.load(sources=[src], as_of=datetime.date(2023, 1, 1), drop_pandemic_seasons=False)

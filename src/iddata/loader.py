@@ -40,6 +40,14 @@ class DiseaseDataLoader:
             warnings.warn(
                 "NHSN does not contain complete data during pandemic seasons for an as_of date before 2024-11-15."
             )
+        if not drop_pandemic_seasons and any(
+            src.source_name == SourceType.FLUSURVNET and getattr(src, "burden_adj", False)
+            for src in sources
+        ):
+            warnings.warn(
+                "FluSurv-NET burden adjustment estimates do not exist for pandemic seasons; "
+                "those seasons will have NaN inc regardless of drop_pandemic_seasons."
+            )
 
         frames = [src.load(as_of=as_of) for src in sources]
         df = pd.concat(frames, axis=0).sort_values(["source", "location", "wk_end_date"])

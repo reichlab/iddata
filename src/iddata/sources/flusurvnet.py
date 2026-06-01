@@ -39,7 +39,8 @@ class FluSurvNetDataSource(DataSource):
         # if requested, make adjustments for overall season burden
         if self.burden_adj:
             hosp_burden_adj = self._calc_hosp_burden_adj()
-            dat = pd.merge(dat, hosp_burden_adj, on="season")
+            # left join so seasons without burden estimates (pandemic years) produce NaN inc rather than being silently dropped
+            dat = pd.merge(dat, hosp_burden_adj, on="season", how="left")
             dat["inc"] = dat["inc"] * dat["adj_factor"]
 
         # fill missing dates per location
