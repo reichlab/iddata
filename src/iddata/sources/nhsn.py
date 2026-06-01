@@ -78,11 +78,11 @@ class NHSNDataSource(DataSource):
             inc_colname = "Total Influenza Admissions"
         else:
             inc_colname = "Total COVID-19 Admissions"
-        dat = dat[["Geographic aggregation", "Week Ending Date", inc_colname]]
-        dat.columns = ["abbreviation", "wk_end_date", "inc"]
-        dat.loc[dat["abbreviation"] == "USA", "abbreviation"] = "US"
-
         # get to location codes/FIPS
-        fips_mappings = load_fips_mappings()
-        dat = dat.merge(fips_mappings, on=["abbreviation"], how="left")
+        dat = (
+            dat[["Geographic aggregation", "Week Ending Date", inc_colname]]
+            .rename(columns={"Geographic aggregation": "abbreviation", "Week Ending Date": "wk_end_date", inc_colname: "inc"})
+            .replace({"abbreviation": {"USA": "US"}})
+            .merge(load_fips_mappings(), on="abbreviation", how="left")
+        )
         return dat[["location", "wk_end_date", "inc"]]

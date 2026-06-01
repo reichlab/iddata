@@ -61,13 +61,13 @@ class NSSPDataSource(DataSource):
         )
 
         # keep hsa_nci_id as this is the location code we will be indexing on
-        dat = dat[["geography", "hsa_nci_id", "week_end", inc_colname]]
-        dat.columns = ["location_name", "hsa_nci_id", "wk_end_date", "inc"]
-
-        # get to location codes / (2-digit) FIPS
-        fips_mappings = load_fips_mappings()
-        dat = dat.merge(fips_mappings, on=["location_name"], how="left") \
+        # then get to location codes / (2-digit) FIPS with fips mappings data
+        dat = (
+            dat[["geography", "hsa_nci_id", "week_end", inc_colname]]
+            .rename(columns={"geography": "location_name", "week_end": "wk_end_date", inc_colname: "inc"})
+            .merge(load_fips_mappings(), on="location_name", how="left")
             .rename(columns={"location": "fips_code"})
+        )
 
         dat = utils.add_season_columns(dat)
 
