@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `DiseaseDataLoader.load()` now accepts `drop_pandemic_seasons: bool = True`; when `True`, sets `inc` to `NaN` for pandemic seasons (2008/09, 2009/10, 2020/21, 2021/22) uniformly across all sources after concatenation
+- Warning in `DiseaseDataLoader.load()` when `drop_pandemic_seasons=False` and an NHSN source is used with `as_of < 2024-11-15` (HHS archive data is incomplete for pandemic seasons)
+- Warning in `DiseaseDataLoader.load()` when `drop_pandemic_seasons=False` and a `FluSurvNetDataSource(burden_adj=True)` is present (CDC burden estimates do not exist for pandemic seasons, so those rows will have `NaN` inc regardless)
+- `NSSPDataSource` data source for NSSP emergency department visit data
+
+### Changed
+- **Breaking**: `drop_pandemic_seasons` removed from `NHSNDataSource` and `ILINetDataSource` constructors; pandemic season handling is now a loader-level concern applied uniformly to all sources
+- `FluSurvNetDataSource.load()`: inner join with burden adjustment factors replaced by left join, so pandemic seasons produce `NaN` inc rather than being silently absent from the output when `burden_adj=True`
+
 ## [2.0.0]
 
 ### Added
