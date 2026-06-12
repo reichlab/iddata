@@ -48,7 +48,7 @@ class NSSPDataSource(DataSource):
             inc_colname = "percent_visits_influenza"
         elif self.disease == Disease.COVID:
             inc_colname = "percent_visits_covid"
-        else:
+        elif self.disease == Disease.RSV:
             inc_colname = "percent_visits_rsv"
 
         # filter, for each hsa_nci_id (excluding states) to include one value per week

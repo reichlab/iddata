@@ -76,7 +76,7 @@ class NHSNDataSource(DataSource):
 
         if self.disease == Disease.FLU:
             inc_colname = "Total Influenza Admissions"
-        else:
+        elif self.disease == Disease.COVID:
             inc_colname = "Total COVID-19 Admissions"
         # get to location codes/FIPS
         dat = (
