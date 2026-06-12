@@ -33,6 +33,10 @@ class FluSurvNetDataSource(DataSource):
         Load FluSurv-NET data. as_of is accepted but ignored (no versioned snapshots). Returns data aggregated to
         state-level FIPS codes and national.
         """
+        if as_of is not None:
+            raise NotImplementedError(
+                f"FluSurvNet does not support versioned data; static data will be loaded")
+        
         seasons = ["20" + str(yy) + "/" + str(yy + 1) for yy in range(10, 23)]
         dat = self._load_base(seasons=seasons, locations=self.locations)
 

@@ -24,6 +24,10 @@ class ILINetDataSource(DataSource):
         Load ILINet data. as_of is accepted but ignored (no versioned snapshots).
         Returns all granularities (state, national, region) with FIPS location codes.
         """
+        if as_of is not None:
+                raise NotImplementedError(
+                    f"ILINet does not support versioned data; static data will be loaded")
+        
         files = [urljoin(S3_DATA_RAW_URL, "influenza-ilinet/ilinet.csv"),
                  urljoin(S3_DATA_RAW_URL, "influenza-ilinet/ilinet_hhs.csv"),
                  urljoin(S3_DATA_RAW_URL, "influenza-ilinet/ilinet_state.csv")]
