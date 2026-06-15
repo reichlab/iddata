@@ -108,6 +108,7 @@ class FluSurvNetDataSource(DataSource):
 
 
     def _calc_hosp_burden_adj(self) -> pd.DataFrame:
+        # Seasons are limited to those with available CDC burden estimates; update range if burden-estimates.csv is extended
         dat = self._load_base(seasons=["20" + str(yy) + "/" + str(yy + 1) for yy in range(10, 23)],
                               locations=["Entire Network"])
         burden_adj = dat[dat["location"] == "Entire Network"].groupby("season")["inc"].sum().reset_index()
