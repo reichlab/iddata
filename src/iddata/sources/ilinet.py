@@ -1,4 +1,5 @@
 import datetime
+import warnings
 from urllib.parse import urljoin
 
 import numpy as np
@@ -25,8 +26,7 @@ class ILINetDataSource(DataSource):
         Returns all granularities (state, national, region) with FIPS location codes.
         """
         if as_of is not None:
-                raise NotImplementedError(
-                    f"ILINet does not support versioned data; static data will be loaded")
+            warnings.warn("ILINet does not support versioned data; static data will be loaded")
         
         files = [urljoin(S3_DATA_RAW_URL, "influenza-ilinet/ilinet.csv"),
                  urljoin(S3_DATA_RAW_URL, "influenza-ilinet/ilinet_hhs.csv"),

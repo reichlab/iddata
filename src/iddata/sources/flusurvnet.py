@@ -1,4 +1,5 @@
 import datetime
+import warnings
 from urllib.parse import urljoin
 
 import numpy as np
@@ -34,8 +35,7 @@ class FluSurvNetDataSource(DataSource):
         state-level FIPS codes and national.
         """
         if as_of is not None:
-            raise NotImplementedError(
-                f"FluSurvNet does not support versioned data; static data will be loaded")
+            warnings.warn("FluSurvNet does not support versioned data; static data will be loaded")
         
         seasons = ["20" + str(yy) + "/" + str(yy + 1) for yy in range(10, 23)]
         dat = self._load_base(seasons=seasons, locations=self.locations)
