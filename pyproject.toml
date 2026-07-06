@@ -1,7 +1,7 @@
 [project]
 name = "iddata"
 description = "Python module for accessing infectious disease data"
-license = {text = "MIT License"}
+license = { text = "MIT License" }
 readme = "README.md"
 requires-python = ">=3.9"
 classifiers = [
@@ -41,8 +41,8 @@ testpaths = [
     "tests",
 ]
 
-[tools.setuptools]
-packages = ["iddata"]
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.ruff]
 line-length = 120
@@ -54,5 +54,10 @@ inline-quotes = "double"
 [tool.ruff.format]
 quote-style = "double"
 
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+]
+
 [tool.setuptools.dynamic]
-version = {attr = "iddata.__version__"}
+version = { attr = "iddata.__version__" }
