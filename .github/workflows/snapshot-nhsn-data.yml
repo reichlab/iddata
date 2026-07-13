@@ -1,8 +1,6 @@
 name: Snapshot NHSN data and upload to S3
 
 on:
-  pull_request:
-    branches: 'main'
   schedule:
     - cron: "45 17 * * 3" # every Wednesday at 5:45PM UTC == 12:45PM EST
   workflow_dispatch:
