@@ -59,11 +59,8 @@ class DiseaseDataLoader:
             for anc in ancillary:
                 anc_df = anc.load()
                 join_keys = ["location", "season"] if "season" in anc_df.columns else ["location"]
+                if "agg_level" in anc_df.columns and "agg_level" in df.columns:
+                    join_keys.append("agg_level")
                 df = df.merge(anc_df, how="left", on=join_keys)
 
-            # Census doesn't provide HSA pop; null it out to avoid spurious joins
-            if "pop" in df.columns:
-                df["pop"] = np.where(df["agg_level"] == "hsa", np.nan, df["pop"])
-            if "log_pop" in df.columns:
-                df["log_pop"] = np.where(df["agg_level"] == "hsa", np.nan, df["log_pop"])
         return df
