@@ -47,7 +47,6 @@ class NHSNDataSource(DataSource):
             dat = dat.merge(pops[["location", "season", "pop"]], on=["location", "season"], how="left") \
                 .assign(inc=lambda x: x["inc"] / x["pop"] * 100000)
 
-        dat["season"] = "1" + dat["season"].str[1:]
         dat["wk_end_date"] = pd.to_datetime(dat["wk_end_date"])
         dat["agg_level"] = np.where(dat["location"] == "US", "national", "state")
         dat = dat[["agg_level", "location", "season", "season_week", "wk_end_date", "inc"]]

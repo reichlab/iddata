@@ -66,4 +66,6 @@ class DiseaseDataLoader:
                 df["pop"] = np.where(df["agg_level"] == "hsa", np.nan, df["pop"])
             if "log_pop" in df.columns:
                 df["log_pop"] = np.where(df["agg_level"] == "hsa", np.nan, df["log_pop"])
+        df["season"] = np.where(df["source"] == "nhsn", "1" + df["season"].str[1:], df["season"])
+        
         return df
