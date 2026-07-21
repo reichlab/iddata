@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pandas as pd
 import pytest
+
 from iddata.enums import Disease, SourceType
 from iddata.loader import DiseaseDataLoader
 from iddata.sources.flusurvnet import FluSurvNetDataSource
@@ -143,7 +144,7 @@ class TestDiseaseDataLoaderMerge:
         assert df["pop"].notna().all()
 
 
-    def test_load_nulls_pop_for_hsa(self):
+    def test_load_passes_pop_for_hsa_when_ancillary_has_it(self):
         rows = self._make_source_df("nhsn")
         rows.loc[0, "agg_level"] = "hsa"
         src = MagicMock()
@@ -161,8 +162,8 @@ class TestDiseaseDataLoaderMerge:
         df = loader.load(sources=[src], as_of=datetime.date(2024, 1, 6), ancillary=[anc])
 
         hsa_rows = df[df["agg_level"] == "hsa"]
-        assert hsa_rows["pop"].isna().all()
-        assert hsa_rows["log_pop"].isna().all()
+        assert hsa_rows["pop"].notna().all()
+        assert hsa_rows["log_pop"].notna().all()
 
 
     def test_warns_when_nhsn_hhs_and_drop_pandemic_false(self):
