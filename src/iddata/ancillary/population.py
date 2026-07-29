@@ -73,7 +73,9 @@ def _load_us_census() -> pd.DataFrame:
 def _load_county_pop_long(url: str) -> pd.DataFrame:
     """Fetch a Census county population file and return (fips, year, pop) in long format."""
     df = pd.read_csv(url, encoding="latin-1", dtype={"STATE": str, "COUNTY": str})
+    # filter state-level rows + avoid SettingWithCopyWarning with an independent df
     df = df[df["COUNTY"] != "000"].copy()
+    # concatenate zero-padded state and county codes to standard 5 digit fips
     df["fips"] = df["STATE"].str.zfill(2) + df["COUNTY"].str.zfill(3)
     pop_cols = [c for c in df.columns if c.startswith("POPESTIMATE")]
     long = df[["fips"] + pop_cols].melt(id_vars="fips", var_name="year_col", value_name="pop")
@@ -83,12 +85,12 @@ def _load_county_pop_long(url: str) -> pd.DataFrame:
 
 def _load_hsa_populations() -> pd.DataFrame:
     """Load HSA-level population by aggregating Census county data via the NCI SEER crosswalk."""
-    # --- Crosswalk ---
+    # --- Crosswalk --- (header row is not in a clean, parsable format so we drop it)
     raw = pd.read_excel(_SEER_HSA_CROSSWALK_URL, sheet_name="HSA (NCI Modified)", header=None, engine="xlrd")
     crosswalk = (
-        raw.iloc[1:]
+        raw.iloc[1:] # remove header row from data
         .rename(columns={0: "location", 1: "hsa_name", 2: "state_county", 3: "fips"})
-        .assign(
+        .assign(# strip whitespace "location" and zero pad "fips"
             location=lambda x: x["location"].astype(str).str.strip(),
             fips=lambda x: x["fips"].astype(str).str.zfill(5),
         )[["location", "fips"]]
@@ -119,6 +121,7 @@ def _load_hsa_populations() -> pd.DataFrame:
 
     # --- Aggregate to HSA via crosswalk ---
     merged = crosswalk.merge(county_pop, on="fips", how="left")
+    # sum county populations to hsa-level; keep NA if all counties NA
     hsa_long = merged.groupby(["location", "year"])["pop"].sum(min_count=1).reset_index()
     hsa_long = hsa_long.dropna(subset=["year"])
     hsa_long["year"] = hsa_long["year"].astype(int)
