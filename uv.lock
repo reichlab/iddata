@@ -820,6 +820,7 @@ dependencies = [
     { name = "s3fs", version = "2025.10.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "s3fs", version = "2026.4.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "toml" },
+    { name = "xlrd" },
 ]
 
 [package.optional-dependencies]
@@ -854,6 +855,7 @@ requires-dist = [
     { name = "s3fs" },
     { name = "toml" },
     { name = "types-toml", marker = "extra == 'dev'" },
+    { name = "xlrd" },
 ]
 
 [package.metadata.requires-dev]
@@ -2464,6 +2466,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/77/79/ceea6f7a912220c5fb59154a65ea9e535fdf8d25042671e3cd5352156e20/wrapt-2.2.1-cp39-cp39-win_amd64.whl", hash = "sha256:2de9e20769fe9c1f6dcdc893c6a89287c5ccf8537c90b5de78aed8017697aad5", size = 80418 },
     { url = "https://files.pythonhosted.org/packages/a3/a6/d7835803916569bc05871f3e3fbb42b26f81df3c696d3a6ccddaa194b3c0/wrapt-2.2.1-cp39-cp39-win_arm64.whl", hash = "sha256:585916e210db57b23543342c2f298e42331b617fd0c934caf5c64df44de8640e", size = 79177 },
     { url = "https://files.pythonhosted.org/packages/53/46/29ac9daf11a86c22a8c38cd9236c62928ccae83f7ceb06bd3b0467cf9d05/wrapt-2.2.1-py3-none-any.whl", hash = "sha256:3aafea2975caef8ca49400640dde02cc7426e798f24870ed01f490bc3cffd32f", size = 61000 },
+]
+
+[[package]]
+name = "xlrd"
+version = "2.0.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/07/5a/377161c2d3538d1990d7af382c79f3b2372e880b65de21b01b1a2b78691e/xlrd-2.0.2.tar.gz", hash = "sha256:08b5e25de58f21ce71dc7db3b3b8106c1fa776f3024c54e45b45b374e89234c9", size = 100167 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1a/62/c8d562e7766786ba6587d09c5a8ba9f718ed3fa8af7f4553e8f91c36f302/xlrd-2.0.2-py2.py3-none-any.whl", hash = "sha256:ea762c3d29f4cca48d82df517b6d89fbce4db3107f9d78713e48cd321d5c9aa9", size = 96555 },
 ]
 
 [[package]]

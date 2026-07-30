@@ -16,7 +16,8 @@ dependencies = [
     "pymmwr",
     "rich",
     "s3fs",
-    "toml"
+    "toml",
+    "xlrd",
 ]
 
 [project.optional-dependencies]

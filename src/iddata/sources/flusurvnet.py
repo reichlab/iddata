@@ -114,7 +114,7 @@ class FluSurvNetDataSource(DataSource):
         burden_adj = dat[dat["location"] == "Entire Network"].groupby("season")["inc"].sum().reset_index()
         burden_adj.columns = ["season", "cum_rate"]
 
-        us_census = _load_us_census().query("location == 'US'").drop("location", axis=1)
+        us_census = _load_us_census().query("location == 'US'")[["season", "pop"]]
         burden_adj = pd.merge(burden_adj, us_census, on="season")
 
         burden_estimates = pd.read_csv(urljoin(S3_DATA_RAW_URL, "burden-estimates/burden-estimates.csv"),

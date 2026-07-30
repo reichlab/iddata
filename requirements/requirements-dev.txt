@@ -20,6 +20,8 @@ botocore==1.35.36
     # via aiobotocore
 cfgv==3.4.0
     # via pre-commit
+colorama==0.4.6
+    # via pytest
 coverage==7.5.1
     # via iddata (pyproject.toml)
 distlib==0.3.8
@@ -82,7 +84,7 @@ pyyaml==6.0.1
     # via pre-commit
 rich==13.7.1
     # via iddata (pyproject.toml)
-ruff==0.4.3
+ruff==0.15.22
     # via iddata (pyproject.toml)
 s3fs==2024.10.0
     # via iddata (pyproject.toml)
@@ -102,5 +104,7 @@ virtualenv==20.26.1
     # via pre-commit
 wrapt==1.16.0
     # via aiobotocore
+xlrd==2.0.2
+    # via iddata (pyproject.toml)
 yarl==1.17.1
     # via aiohttp
