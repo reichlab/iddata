@@ -1,6 +1,12 @@
+"""End-to-end DiseaseDataLoader tests against real data. These require network access to S3 and CDC endpoints.
+
+Fast, mocked coverage of the uniform loader logic (source merging, ancillary joins, drop_pandemic_seasons) lives in
+tests/iddata/unit/test_sources.py; the tests here are integration sanity checks that the real sources still load and
+that as_of snapshot selection works.
+"""
+
 import datetime
 
-import numpy as np
 import pytest
 
 from iddata.loader import DiseaseDataLoader
@@ -13,20 +19,20 @@ _DEFAULT_AS_OF = datetime.date.fromisoformat("2023-12-30")
 _NSSP_AS_OF = datetime.date.fromisoformat("2025-09-20")
 
 
-def test_load_data_sources():
+@pytest.mark.parametrize("sources, expected_source_values", [
+    ([NHSNDataSource()], {"nhsn"}),
+    ([ILINetDataSource()], {"ilinet"}),
+    ([FluSurvNetDataSource()], {"flusurvnet"}),
+    ([NSSPDataSource()], {"nssp"}),
+    ([NHSNDataSource(), ILINetDataSource(), FluSurvNetDataSource(), NSSPDataSource()],
+     {"nhsn", "ilinet", "flusurvnet", "nssp"}),
+])
+def test_load_data_sources(sources, expected_source_values):
     loader = DiseaseDataLoader()
 
-    cases = [([NHSNDataSource()], {"nhsn"}),
-             ([NHSNDataSource(), ILINetDataSource()], {"nhsn", "ilinet"}),
-             ([FluSurvNetDataSource()], {"flusurvnet"}),
-             ([FluSurvNetDataSource(), NHSNDataSource(), ILINetDataSource()], {"flusurvnet", "nhsn", "ilinet"}),
-             ([NSSPDataSource()], {"nssp"}),
-             ([NHSNDataSource(), ILINetDataSource(), FluSurvNetDataSource(), NSSPDataSource()],
-              {"nhsn", "ilinet", "flusurvnet", "nssp"})]
-    for sources, expected_source_values in cases:
-        as_of = _NSSP_AS_OF if any(isinstance(s, NSSPDataSource) for s in sources) else _DEFAULT_AS_OF
-        df = loader.load(sources=sources, as_of=as_of)
-        assert set(df["source"].unique()) == expected_source_values
+    as_of = _NSSP_AS_OF if any(isinstance(s, NSSPDataSource) for s in sources) else _DEFAULT_AS_OF
+    df = loader.load(sources=sources, as_of=as_of)
+    assert set(df["source"].unique()) == expected_source_values
 
 
 def test_nssp_columns():
@@ -37,67 +43,48 @@ def test_nssp_columns():
     assert set(nssp_df.columns) == set(nhsn_df.columns)
 
 
-@pytest.mark.parametrize("select_date, select_locations, expected_agg_levels", [
-    ("2025-09-06", ["US", "01", "25", "25"], ["national", "state", "state", "hsa"])
-])
-def test_nssp_locations(select_date, select_locations, expected_agg_levels):
+def test_nssp_locations():
+    select_date = "2025-09-06"
+    select_locations = ["US", "01", "25", "25"]
+    expected_agg_levels = ["national", "state", "state", "hsa"]
+
     loader = DiseaseDataLoader()
     df = loader.load(sources=[NSSPDataSource()], as_of=_NSSP_AS_OF)
     subset_df = df.loc[(df["wk_end_date"] == select_date) & (df["location"].isin(select_locations))]
 
     # Get actual aggregation levels as a sorted list to preserve duplicates
     actual_agg_levels = sorted(subset_df["agg_level"].tolist())
-    expected_agg_levels_sorted = sorted(expected_agg_levels)
 
-    assert actual_agg_levels == expected_agg_levels_sorted
+    assert actual_agg_levels == sorted(expected_agg_levels)
 
 
-@pytest.mark.parametrize("drop_pandemic, as_of, season_expected, wk_end_date_expected", [
-    (True, datetime.date.today(), "2022/23", "2023-12-23"),
-    (True, datetime.date.fromisoformat("2023-12-30"), "2022/23", "2023-12-23"),
+@pytest.mark.parametrize("pinned", [True, False])
+@pytest.mark.parametrize("source_cls, pinned_as_of, wk_end_date_expected", [
+    (NHSNDataSource, _DEFAULT_AS_OF, "2023-12-23"),
+    (NSSPDataSource, _NSSP_AS_OF, "2025-09-06"),
 ])
-def test_load_data_nhsn_kwargs(drop_pandemic, as_of, season_expected, wk_end_date_expected):
+def test_as_of_selects_snapshot(pinned, source_cls, pinned_as_of, wk_end_date_expected):
+    """A pinned as_of must resolve to that exact snapshot; as_of=today must resolve to one at least that recent."""
     loader = DiseaseDataLoader()
 
-    df = loader.load(
-        sources=[NHSNDataSource()],
-        as_of=as_of,
-        drop_pandemic_seasons=drop_pandemic,
-    )
+    as_of = pinned_as_of if pinned else datetime.date.today()
+    df = loader.load(sources=[source_cls()], as_of=as_of)
 
-    assert df.dropna()["season"].min() == season_expected
     wk_end_date_actual = str(df["wk_end_date"].max())[:10]
-    if as_of == datetime.date.fromisoformat("2023-12-30"):
+    if pinned:
         assert wk_end_date_actual == wk_end_date_expected
     else:
         assert wk_end_date_actual >= wk_end_date_expected
 
-
-@pytest.mark.parametrize("drop_pandemic, expect_all_na", [
-    (True, True),
-    (False, False),
-])
-def test_load_data_ilinet_kwargs(drop_pandemic, expect_all_na):
-    loader = DiseaseDataLoader()
-
-    df = loader.load(
-        sources=[ILINetDataSource()],
-        as_of=_DEFAULT_AS_OF,
-        drop_pandemic_seasons=drop_pandemic,
-    )
-
-    if expect_all_na:
-        assert np.all(df.loc[df["season"].isin(["2008/09", "2009/10", "2020/21", "2021/22"]), "inc"].isna())
-    else:
-        # expect some non-NA values in pandemic seasons
-        assert np.any(~df.loc[df["season"].isin(["2008/09", "2009/10", "2020/21", "2021/22"]), "inc"].isna())
+    # pandemic seasons have inc NaN'd out by default, so the earliest season with data is post-pandemic
+    assert df.dropna(subset=["inc"])["season"].min() == "2022/23"
 
 
 @pytest.mark.parametrize("locations", [
     None,
     ["California", "Colorado", "Connecticut"],
 ])
-def test_load_data_flusurvnet_kwargs(locations):
+def test_flusurvnet_locations_filter(locations):
     loader = DiseaseDataLoader()
 
     df = loader.load(
@@ -109,24 +96,3 @@ def test_load_data_flusurvnet_kwargs(locations):
         assert len(df["location"].unique()) > 3
     else:
         assert len(df["location"].unique()) == len(locations)
-
-
-@pytest.mark.parametrize("drop_pandemic, as_of, season_expected, wk_end_date_expected", [
-    (True, datetime.date.today(), "2022/23", "2025-09-06"),
-    (True, datetime.date.fromisoformat("2025-09-20"), "2022/23", "2025-09-06"),
-])
-def test_load_data_nssp_kwargs(drop_pandemic, as_of, season_expected, wk_end_date_expected):
-    loader = DiseaseDataLoader()
-
-    df = loader.load(
-        sources=[NSSPDataSource()],
-        as_of=as_of,
-        drop_pandemic_seasons=drop_pandemic,
-    )
-
-    assert df["season"].min() == season_expected
-    wk_end_date_actual = str(df["wk_end_date"].max())[:10]
-    if as_of == datetime.date.fromisoformat("2025-09-20"):
-        assert wk_end_date_actual == wk_end_date_expected
-    else:
-        assert wk_end_date_actual >= wk_end_date_expected
