@@ -41,6 +41,9 @@ tmp_path_retention_policy = "none"
 testpaths = [
     "tests",
 ]
+markers = [
+    "integration: requires network access to S3/CDC/Census (deselect with '-m \"not integration\"')",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

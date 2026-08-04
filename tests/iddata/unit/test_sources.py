@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from iddata.constants import PANDEMIC_SEASONS
 from iddata.enums import Disease, SourceType
 from iddata.loader import DiseaseDataLoader
 from iddata.sources.flusurvnet import FluSurvNetDataSource
@@ -164,6 +165,27 @@ class TestDiseaseDataLoaderMerge:
         hsa_rows = df[df["agg_level"] == "hsa"]
         assert hsa_rows["pop"].notna().all()
         assert hsa_rows["log_pop"].notna().all()
+
+
+    @pytest.mark.parametrize("drop_pandemic, expect_na", [
+        (True, True),
+        (False, False),
+    ])
+    def test_drop_pandemic_seasons_sets_inc_na(self, drop_pandemic, expect_na):
+        rows = self._make_source_df("ilinet")
+        rows.loc[0, "season"] = PANDEMIC_SEASONS[0]
+        src = MagicMock()
+        src.source_name = SourceType.ILINET
+        src.load.return_value = rows
+
+        loader = DiseaseDataLoader()
+        df = loader.load(sources=[src], as_of=datetime.date(2024, 1, 6), drop_pandemic_seasons=drop_pandemic)
+
+        pandemic_rows = df[df["season"].isin(PANDEMIC_SEASONS)]
+        assert len(pandemic_rows) == 1
+        assert bool(pandemic_rows["inc"].isna().all()) is expect_na
+        # non-pandemic seasons are untouched either way
+        assert df[~df["season"].isin(PANDEMIC_SEASONS)]["inc"].notna().all()
 
 
     def test_warns_when_nhsn_hhs_and_drop_pandemic_false(self):
