@@ -16,7 +16,10 @@ jobs:
       - name: lint
         run: |
            ruff check .
-      - name: run tests
+      - name: run unit tests
         run: |
-           pytest
+           pytest -m "not integration"
+      - name: run integration tests
+        run: |
+           pytest -m integration
 
