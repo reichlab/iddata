@@ -6,7 +6,7 @@ import pandas as pd
 
 from iddata import utils
 from iddata.ancillary.population import _load_us_census
-from iddata.constants import S3_DATA_RAW_URL
+from iddata.constants import NHSN_SOURCE_CUTOVER_DATE, S3_DATA_RAW_URL
 from iddata.enums import Disease, SourceType
 from iddata.s3 import get_versioned_file_path
 from iddata.sources.base import DataSource
@@ -32,7 +32,7 @@ class NHSNDataSource(DataSource):
 
         if isinstance(as_of, str):
             as_of = datetime.date.fromisoformat(as_of)
-        if as_of < datetime.date.fromisoformat("2024-11-15"):
+        if as_of < NHSN_SOURCE_CUTOVER_DATE:
             if self.disease != Disease.FLU:
                 raise NotImplementedError(
                     f"NHSN only supports disease='flu' for an as_of date prior to 2024-11-15; got {self.disease}.")

@@ -7,6 +7,7 @@ import pandas as pd
 from iddata.ancillary.base import AncillaryData
 from iddata.constants import PANDEMIC_SEASONS
 from iddata.enums import SourceType
+from iddata.nowcast.base import NowcastConfig, wrap_sources
 from iddata.sources.base import DataSource
 
 
@@ -18,7 +19,8 @@ class DiseaseDataLoader:
 
     def load(self, sources: list[DataSource], as_of: datetime.date,
              ancillary: list[AncillaryData] | None = None,
-             drop_pandemic_seasons: bool = True) -> pd.DataFrame:
+             drop_pandemic_seasons: bool = True,
+             nowcast: NowcastConfig | None = None) -> pd.DataFrame:
         """
         Load and merge data from the specified sources, plus any ancillary data. Does NOT apply power transforms or
         center/scale normalization.
@@ -34,7 +36,14 @@ class DiseaseDataLoader:
             Typically [PopulationData()] for models that need pop and log_pop.
         drop_pandemic_seasons : bool
             If True (default), set inc to NaN for pandemic seasons across all sources.
+        nowcast : NowcastConfig | None
+            If provided, wraps eligible sources (see `NowcastConfig.sources`) so their most
+            recent, still-incomplete observations are corrected for reporting delay before
+            being loaded. Default None preserves existing behavior exactly.
         """
+        if nowcast is not None:
+            sources = wrap_sources(sources, nowcast)
+
         if not drop_pandemic_seasons and as_of < datetime.date(2024, 11, 15) and \
                 any(src.source_name == SourceType.NHSN for src in sources):
             warnings.warn(
