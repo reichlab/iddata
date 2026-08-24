@@ -4,6 +4,7 @@ from urllib.parse import urljoin
 
 import numpy as np
 import pandas as pd
+import pymmwr
 
 from iddata.ancillary.base import AncillaryData
 from iddata.constants import S3_DATA_RAW_URL
@@ -22,13 +23,14 @@ _STALE_FIPS = {
 def _all_seasons() -> list[str]:
     """All season strings from 1997/98 through the current season.
 
-    Seasons are labeled by their starting year (e.g. "2023/24" starts in 2023). The
-    season, and the epi week year, rolls over in August, when the epi week resets to
-    week 1, so the current season's start year is the current year from August
-    onward, and the previous year otherwise.
+    Seasons are labeled by their starting year (e.g. "2023/24" starts in 2023). Per
+    `iddata.utils.convert_epiweek_to_season`, a season rolls over once the epiweek
+    crosses from week 30 to week 31 -- a date that varies by a day or two year to
+    year depending on which weekday January 1st falls on, so the epiweek itself
+    (rather than a fixed calendar date) determines the current season's start year.
     """
-    today = date.today()
-    last_start_year = today.year if today.month >= 8 else today.year - 1
+    epiweek = pymmwr.date_to_epiweek(date.today())
+    last_start_year = epiweek.year if epiweek.week > 30 else epiweek.year - 1
     return [str(y) + "/" + str(y + 1)[-2:] for y in range(1997, last_start_year + 1)]
 
 
