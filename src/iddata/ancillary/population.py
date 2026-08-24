@@ -1,3 +1,4 @@
+from datetime import date
 from itertools import product
 from urllib.parse import urljoin
 
@@ -16,6 +17,19 @@ _STALE_FIPS = {
     "02270": ["02158"],          # Wade Hampton Census Area renamed Kusilvak (2015)
     "02261": ["02063", "02066"], # Valdez-Cordova split into Chugach + Copper River (2019)
 }
+
+
+def _all_seasons() -> list[str]:
+    """All season strings from 1997/98 through the current season.
+
+    Seasons are labeled by their starting year (e.g. "2023/24" starts in 2023). The
+    season, and the epi week year, rolls over in August, when the epi week resets to
+    week 1, so the current season's start year is the current year from August
+    onward, and the previous year otherwise.
+    """
+    today = date.today()
+    last_start_year = today.year if today.month >= 8 else today.year - 1
+    return [str(y) + "/" + str(y + 1)[-2:] for y in range(1997, last_start_year + 1)]
 
 
 def _load_us_census() -> pd.DataFrame:
@@ -55,7 +69,7 @@ def _load_us_census() -> pd.DataFrame:
                        np.where(dat["location"].str.startswith("Region"), "hhs region", "state"))
 
     all_locations = dat["location"].unique()
-    all_seasons = [str(y) + "/" + str(y + 1)[-2:] for y in range(1997, 2026)]
+    all_seasons = _all_seasons()
     full_result = pd.DataFrame.from_records(product(all_locations, all_seasons))
     full_result.columns = ["location", "season"]
     dat = (
@@ -138,7 +152,7 @@ def _load_hsa_populations() -> pd.DataFrame:
     hsa_long = hsa_long[["location", "season", "pop"]]
 
     # --- Extend to all seasons via forward/backward fill (matching the approach in _load_us_census) ---
-    all_seasons = [str(y) + "/" + str(y + 1)[-2:] for y in range(1997, 2026)]
+    all_seasons = _all_seasons()
     full_result = pd.DataFrame.from_records(
         product(hsa_long["location"].unique(), all_seasons), columns=["location", "season"]
     )
