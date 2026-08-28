@@ -9,6 +9,7 @@ from iddata.sources.flusurvnet import FluSurvNetDataSource
 from iddata.sources.ilinet import ILINetDataSource
 from iddata.sources.nhsn import NHSNDataSource
 from iddata.sources.nssp import NSSPDataSource
+from iddata.sources.smh import SMHDataSource
 
 _DEFAULT_AS_OF = datetime.date.fromisoformat("2023-12-30")
 _NSSP_AS_OF = datetime.date.fromisoformat("2025-09-20")
@@ -22,12 +23,21 @@ def test_load_data_sources():
              ([FluSurvNetDataSource()], {"flusurvnet"}),
              ([FluSurvNetDataSource(), NHSNDataSource(), ILINetDataSource()], {"flusurvnet", "nhsn", "ilinet"}),
              ([NSSPDataSource()], {"nssp"}),
-             ([NHSNDataSource(), ILINetDataSource(), FluSurvNetDataSource(), NSSPDataSource()],
+             ([SMHDataSource()], set()),
+             ([NHSNDataSource(), ILINetDataSource(), FluSurvNetDataSource(), NSSPDataSource(), SMHDataSource()],
               {"nhsn", "ilinet", "flusurvnet", "nssp"})]
-    for sources, expected_source_values in cases:
+    for sources, expected_non_smh_source_values in cases:
         as_of = _NSSP_AS_OF if any(isinstance(s, NSSPDataSource) for s in sources) else _DEFAULT_AS_OF
         df = loader.load(sources=sources, as_of=as_of)
-        assert set(df["source"].unique()) == expected_source_values
+        is_smh_source = df["source"].str[:4] == "smh-"
+        non_smh_sources = set(df["source"].loc[~is_smh_source].unique())
+        assert non_smh_sources == expected_non_smh_source_values
+        assert is_smh_source.any() == any(isinstance(s, SMHDataSource) for s in sources)
+
+
+def test_smh_wk_end_date_is_saturday():
+    df = SMHDataSource().load(as_of=_DEFAULT_AS_OF)
+    assert (df["wk_end_date"].dt.dayofweek == 5).all()
 
 
 def test_nssp_columns():

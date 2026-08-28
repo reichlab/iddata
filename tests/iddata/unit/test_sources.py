@@ -14,6 +14,7 @@ from iddata.sources.flusurvnet import FluSurvNetDataSource
 from iddata.sources.ilinet import ILINetDataSource
 from iddata.sources.nhsn import NHSNDataSource
 from iddata.sources.nssp import NSSPDataSource
+from iddata.sources.smh import SMHDataSource
 
 
 class TestNHSNDataSource:
@@ -90,6 +91,15 @@ class TestFluSurvNetDataSource:
         assert len(FluSurvNetDataSource().locations) > 0
 
 
+class TestSMHDataSource:
+    def test_source_name(self):
+        assert SMHDataSource.source_name == SourceType.SMH
+
+
+    def test_default_disease(self):
+        assert SMHDataSource().disease == Disease.FLU
+
+
 class TestDiseaseDataLoaderMerge:
     """Tests for DiseaseDataLoader merge logic using mocked sources."""
 
@@ -142,6 +152,27 @@ class TestDiseaseDataLoaderMerge:
         assert "pop" in df.columns
         assert "log_pop" in df.columns
         assert df["pop"].notna().all()
+
+
+    def test_load_default_ancillary_merges_population(self):
+        src = self._make_mock_source("nhsn")
+        loader = DiseaseDataLoader()
+
+        df = loader.load(sources=[src], as_of=datetime.date(2024, 1, 6))
+
+        assert "pop" in df.columns
+        assert "log_pop" in df.columns
+        assert df["pop"].notna().all()
+
+
+    def test_load_empty_ancillary_skips_population_merge(self):
+        src = self._make_mock_source("nhsn")
+        loader = DiseaseDataLoader()
+
+        df = loader.load(sources=[src], as_of=datetime.date(2024, 1, 6), ancillary=[])
+
+        assert "pop" not in df.columns
+        assert "log_pop" not in df.columns
 
 
     def test_load_passes_pop_for_hsa_when_ancillary_has_it(self):

@@ -44,6 +44,8 @@ pandas==2.2.3
     # via iddata (pyproject.toml)
 propcache==0.2.0
     # via yarl
+pyarrow==25.0.0
+    # via iddata (pyproject.toml)
 pygments==2.18.0
     # via rich
 pymmwr==0.2.2

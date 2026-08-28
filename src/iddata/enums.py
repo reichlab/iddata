@@ -20,3 +20,4 @@ class SourceType(str, Enum):
     NSSP = "nssp"
     FLUSURVNET = "flusurvnet"
     ILINET = "ilinet"
+    SMH = "smh"
