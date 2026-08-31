@@ -20,21 +20,21 @@ _STALE_FIPS = {
 }
 
 
-def _all_seasons() -> list[str]:
-    """All season strings from 1997/98 through the current season.
+def _all_seasons(as_of: date | None = None) -> list[str]:
+    """All season strings from 1997/98 through the season containing as_of (default: today).
 
     Seasons are labeled by their starting year (e.g. "2023/24" starts in 2023). Per
     `iddata.utils.convert_epiweek_to_season`, a season rolls over once the epiweek
     crosses from week 30 to week 31 -- a date that varies by a day or two year to
     year depending on which weekday January 1st falls on, so the epiweek itself
-    (rather than a fixed calendar date) determines the current season's start year.
+    (rather than a fixed calendar date) determines a season's start year.
     """
-    epiweek = pymmwr.date_to_epiweek(date.today())
+    epiweek = pymmwr.date_to_epiweek(as_of or date.today())
     last_start_year = epiweek.year if epiweek.week > 30 else epiweek.year - 1
     return [str(y) + "/" + str(y + 1)[-2:] for y in range(1997, last_start_year + 1)]
 
 
-def _load_us_census() -> pd.DataFrame:
+def _load_us_census(as_of: date | None = None) -> pd.DataFrame:
     """Load US Census population data (location × season)."""
 
     def _load_one(f):
@@ -71,7 +71,7 @@ def _load_us_census() -> pd.DataFrame:
                        np.where(dat["location"].str.startswith("Region"), "hhs region", "state"))
 
     all_locations = dat["location"].unique()
-    all_seasons = _all_seasons()
+    all_seasons = _all_seasons(as_of)
     full_result = pd.DataFrame.from_records(product(all_locations, all_seasons))
     full_result.columns = ["location", "season"]
     dat = (
@@ -99,7 +99,7 @@ def _load_county_pop_long(url: str) -> pd.DataFrame:
     return long[["fips", "year", "pop"]]
 
 
-def _load_hsa_populations() -> pd.DataFrame:
+def _load_hsa_populations(as_of: date | None = None) -> pd.DataFrame:
     """Load HSA-level population by aggregating Census county data via the NCI SEER crosswalk."""
     # --- Crosswalk --- (header row is not in a clean, parsable format so we drop it)
     raw = pd.read_excel(_SEER_HSA_CROSSWALK_URL, sheet_name="HSA (NCI Modified)", header=None, engine="xlrd")
@@ -154,7 +154,7 @@ def _load_hsa_populations() -> pd.DataFrame:
     hsa_long = hsa_long[["location", "season", "pop"]]
 
     # --- Extend to all seasons via forward/backward fill (matching the approach in _load_us_census) ---
-    all_seasons = _all_seasons()
+    all_seasons = _all_seasons(as_of)
     full_result = pd.DataFrame.from_records(
         product(hsa_long["location"].unique(), all_seasons), columns=["location", "season"]
     )
@@ -182,10 +182,10 @@ class PopulationData(AncillaryData):
         log_pop   (float): log(pop)
     """
 
-    def load(self) -> pd.DataFrame:
+    def load(self, as_of: date | None = None) -> pd.DataFrame:
         """Load population data from S3, returning per-location-season estimates."""
-        census = _load_us_census()
-        hsa = _load_hsa_populations()
+        census = _load_us_census(as_of)
+        hsa = _load_hsa_populations(as_of)
         dat = pd.concat(
             [census[["location", "season", "pop", "agg_level"]], hsa[["location", "season", "pop", "agg_level"]]],
             axis=0,

@@ -3,7 +3,6 @@ import datetime
 import numpy as np
 import pytest
 
-from iddata.ancillary import population
 from iddata.ancillary.population import _all_seasons, _load_hsa_populations
 from iddata.loader import DiseaseDataLoader
 from iddata.sources.flusurvnet import FluSurvNetDataSource
@@ -134,26 +133,32 @@ def test_load_data_nssp_kwargs(drop_pandemic, as_of, season_expected, wk_end_dat
         assert wk_end_date_actual >= wk_end_date_expected
 
 
-@pytest.mark.parametrize("today, season_expected", [
+@pytest.mark.parametrize("as_of, season_expected", [
     # rollover falls on epiweek 30 -> 31, which lands a day later than usual in 2026
     (datetime.date(2026, 8, 1), "2025/26"),  # still epiweek 30: previous season
     (datetime.date(2026, 8, 2), "2026/27"),  # epiweek 31: new season begins
     (datetime.date(2027, 1, 15), "2026/27"),  # mid-season, after new year
 ])
-def test_all_seasons(monkeypatch, today, season_expected):
-    class _FakeDate(datetime.date):
-        @classmethod
-        def today(cls):
-            return today
-
-    monkeypatch.setattr(population, "date", _FakeDate)
-
-    seasons = _all_seasons()
+def test_all_seasons(as_of, season_expected):
+    seasons = _all_seasons(as_of)
 
     assert seasons[0] == "1997/98"
     assert seasons[-1] == season_expected
     assert len(seasons) == len(set(seasons))  # no duplicates
     assert seasons == sorted(seasons)  # strictly increasing
+
+
+def test_all_seasons_defaults_to_today(monkeypatch):
+    from iddata.ancillary import population
+
+    class _FakeDate(datetime.date):
+        @classmethod
+        def today(cls):
+            return datetime.date(2026, 8, 2)
+
+    monkeypatch.setattr(population, "date", _FakeDate)
+
+    assert _all_seasons() == _all_seasons(datetime.date(2026, 8, 2))
 
 
 def test_hsa_populations():
