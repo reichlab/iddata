@@ -14,7 +14,9 @@ def load_fips_mappings() -> pd.DataFrame:
 
 
 def date_to_ew_str(row, date_col_name="wk_end_date"):
-    ew = pymmwr.date_to_epiweek(datetime.date.fromisoformat(row[date_col_name]))
+    d = row[date_col_name]
+    d = datetime.date.fromisoformat(d) if isinstance(d, str) else pd.Timestamp(d).date()
+    ew = pymmwr.date_to_epiweek(d)
     ew_str = str(ew.year) + str(ew.week)
     return ew_str
 

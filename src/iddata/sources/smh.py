@@ -1,5 +1,4 @@
 import datetime
-import warnings
 from urllib.parse import urljoin
 
 import numpy as np
@@ -30,8 +29,16 @@ class SMHDataSource(DataSource):
         Load SMH weekly hospitalization trajectory predictions. Raises ValueError if as_of is None. Only supports as_of >=
         2025-09-17.
         """
-        if as_of is not None: # will be replaced later
-            warnings.warn("SMH does not yet support versioned data; static data for round 5 will be loaded")
+        if isinstance(as_of, str):
+            as_of = datetime.date.fromisoformat(as_of)
+        if as_of < datetime.date.fromisoformat("2022-08-14"):
+            raise NotImplementedError("SMH was not available before 2022-08-14 and will thus not be loaded")
+        elif as_of < datetime.date.fromisoformat("2024-08-11"):
+            rounds = [4]
+        elif as_of < datetime.date.fromisoformat("2025-08-10"):
+            rounds = [4, 5]
+        else:
+            rounds = [4, 5, 6]
 
         valid_diseases = (Disease.FLU)
         if self.disease not in valid_diseases:
@@ -43,16 +50,21 @@ class SMHDataSource(DataSource):
         # elif self.disease == Disease.COVID:
         #     disease_name = "covid"
 
-        parquet_path = f"{disease_name}_scenario-round5_gz.parquet"
-        dat = pd.read_parquet(urljoin(SMH_DATA_PARQUET_URL, parquet_path), engine="pyarrow")
+        read_cols = ["model_id", "scenario_id", "location", "output_type_id", "value", "origin_date", "horizon"]
+        dat = pd.concat(
+            (
+                pd.read_parquet(
+                    urljoin(SMH_DATA_PARQUET_URL, f"{disease_name}_scenario-round{r}_gz.parquet"),
+                    engine="pyarrow",
+                    columns=read_cols,
+                )
+                for r in rounds
+            ),
+            axis=0,
+        )
 
-        # get to location codes/FIPS
-        origin_horizon = dat[["origin_date", "horizon"]].drop_duplicates()
-        origin_horizon["target_end_date"] = pd.to_datetime(origin_horizon["origin_date"]) + pd.to_timedelta(7 * origin_horizon["horizon"], unit="D")
-        dat = dat.merge(origin_horizon, how="left", on=["origin_date", "horizon"])
-        dat["wk_end_date"] = (
-            pd.to_datetime(dat["target_end_date"]) + pd.offsets.Week(weekday=5, n=0)
-        ).dt.strftime("%Y-%m-%d")
+        target_end_date = pd.to_datetime(dat["origin_date"]) + pd.to_timedelta(7 * dat["horizon"], unit="D")
+        dat["wk_end_date"] = target_end_date + pd.offsets.Week(weekday=5, n=0)
         dat = dat[
             [
                 "model_id",
@@ -73,7 +85,6 @@ class SMHDataSource(DataSource):
                 join_keys = ["location", "season"] if "season" in anc_df.columns else ["location"]
                 dat = dat.merge(anc_df, how="left", on=join_keys)
 
-        dat["wk_end_date"] = pd.to_datetime(dat["wk_end_date"])
         dat["agg_level"] = np.where(dat["location"] == "US", "national", "state")
         dat["location"] = "syn-" + dat["location"]
         dat["season"] = (
