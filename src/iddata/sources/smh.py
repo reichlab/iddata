@@ -15,10 +15,13 @@ class SMHDataSource(DataSource):
     source_name = SourceType.SMH
 
     def __init__(
-        self, disease: Disease = Disease.FLU, agg_level: AggLevel = AggLevel.STATE
+        self, disease: Disease = Disease.FLU, agg_level: AggLevel = AggLevel.STATE,
+        model_id: list[str] | None = None, output_type_id: list[str] | None = None,
     ):
         self.disease = disease
         self.agg_level = agg_level
+        self.model_id = model_id
+        self.output_type_id = output_type_id
 
     def load(
         self,
@@ -26,13 +29,14 @@ class SMHDataSource(DataSource):
         ancillary: list[AncillaryData] | None = None,
     ) -> pd.DataFrame:
         """
-        Load SMH weekly hospitalization trajectory predictions. Raises ValueError if as_of is None. Only supports as_of >=
-        2025-09-17.
+        Load SMH weekly hospitalization trajectory predictions. Only supports as_of >= 2022-08-14. 
+        If `model_id`/`output_type_id` were set on this instance, they're applied as parquet
+        predicate pushdown filters so only the matching rows are read.
         """
         if isinstance(as_of, str):
             as_of = datetime.date.fromisoformat(as_of)
         if as_of < datetime.date.fromisoformat("2022-08-14"):
-            raise NotImplementedError("SMH was not available before 2022-08-14 and will thus not be loaded")
+            raise NotImplementedError("SMH began collecting forecasts on 2022-08-14; no forecasts were available before this date and will thus not be loaded")
         elif as_of < datetime.date.fromisoformat("2024-08-11"):
             rounds = [4]
         elif as_of < datetime.date.fromisoformat("2025-08-10"):
@@ -51,12 +55,19 @@ class SMHDataSource(DataSource):
         #     disease_name = "covid"
 
         read_cols = ["model_id", "scenario_id", "location", "output_type_id", "value", "origin_date", "horizon"]
+        filters = []
+        if self.model_id:
+            filters.append(("model_id", "in", self.model_id))
+        if self.output_type_id:
+            filters.append(("output_type_id", "in", self.output_type_id))
+
         dat = pd.concat(
             (
                 pd.read_parquet(
                     urljoin(SMH_DATA_PARQUET_URL, f"{disease_name}_scenario-round{r}_gz.parquet"),
                     engine="pyarrow",
                     columns=read_cols,
+                    filters=filters or None,
                 )
                 for r in rounds
             ),
