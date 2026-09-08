@@ -15,10 +15,11 @@ class SMHDataSource(DataSource):
     source_name = SourceType.SMH
 
     def __init__(
-        self, disease: Disease = Disease.FLU, agg_level: AggLevel = AggLevel.STATE,
+        self, disease: Disease = Disease.FLU, rates: bool = True, agg_level: AggLevel = AggLevel.STATE,
         model_id: list[str] | None = None, output_type_id: list[str] | None = None,
     ):
         self.disease = disease
+        self.rates = rates
         self.agg_level = agg_level
         self.model_id = model_id
         self.output_type_id = output_type_id
@@ -55,7 +56,7 @@ class SMHDataSource(DataSource):
         #     disease_name = "covid"
 
         read_cols = ["model_id", "scenario_id", "location", "output_type_id", "value", "origin_date", "horizon"]
-        filters = []
+        filters = [("target", "==", "inc hosp")]
         if self.model_id:
             filters.append(("model_id", "in", self.model_id))
         if self.output_type_id:
@@ -88,15 +89,20 @@ class SMHDataSource(DataSource):
         ].rename(columns={"value": "inc"})
 
         dat = utils.add_season_columns(dat)
+        dat["agg_level"] = np.where(dat["location"] == "US", "national", "state")
 
         # merge with populations
         if ancillary:
             for anc in ancillary:
                 anc_df = anc.load()
                 join_keys = ["location", "season"] if "season" in anc_df.columns else ["location"]
+                if "agg_level" in anc_df.columns and "agg_level" in dat.columns:
+                    join_keys.append("agg_level")
                 dat = dat.merge(anc_df, how="left", on=join_keys)
 
-        dat["agg_level"] = np.where(dat["location"] == "US", "national", "state")
+        if self.rates:
+            dat = dat.assign(inc=lambda x: x["inc"] / x["pop"] * 100000)
+
         dat["location"] = "syn-" + dat["location"]
         dat["season"] = (
             dat["season"] + dat["scenario_id"].str[0] + "-" + dat["output_type_id"]
