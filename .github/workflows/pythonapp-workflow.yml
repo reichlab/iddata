@@ -20,6 +20,9 @@ jobs:
         run: |
            pytest -m "not integration"
       - name: run integration tests
+        # run even if the unit-test step failed, so a real-data break is not hidden behind a logic
+        # failure; still skipped if the job itself was cancelled
+        if: ${{ !cancelled() }}
         run: |
            pytest -m integration
 

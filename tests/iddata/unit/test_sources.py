@@ -8,7 +8,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from iddata.constants import PANDEMIC_SEASONS
 from iddata.enums import Disease, SourceType
 from iddata.loader import DiseaseDataLoader
 from iddata.sources.flusurvnet import FluSurvNetDataSource
@@ -172,8 +171,15 @@ class TestDiseaseDataLoaderMerge:
         (False, False),
     ])
     def test_drop_pandemic_seasons_sets_inc_na(self, drop_pandemic, expect_na):
-        rows = self._make_source_df("ilinet")
-        rows.loc[0, "season"] = PANDEMIC_SEASONS[0]
+        """The season strings here are deliberately literal rather than read from the constant in iddata.constants.
+
+        Deriving them from that constant would make the test tautological: it would keep passing if the constant
+        drifted away from the "YYYY/YY" format that add_season_columns actually produces, silently disabling the
+        NaN assignment for every real source. One literal is taken from each pandemic pair.
+        """
+        rows = self._make_source_df("ilinet", locations=("01", "06", "13"))
+        rows.loc[0, "season"] = "2009/10"
+        rows.loc[1, "season"] = "2020/21"
         src = MagicMock()
         src.source_name = SourceType.ILINET
         src.load.return_value = rows
@@ -181,11 +187,11 @@ class TestDiseaseDataLoaderMerge:
         loader = DiseaseDataLoader()
         df = loader.load(sources=[src], as_of=datetime.date(2024, 1, 6), drop_pandemic_seasons=drop_pandemic)
 
-        pandemic_rows = df[df["season"].isin(PANDEMIC_SEASONS)]
-        assert len(pandemic_rows) == 1
+        pandemic_rows = df[df["season"].isin(["2009/10", "2020/21"])]
+        assert len(pandemic_rows) == 2
         assert bool(pandemic_rows["inc"].isna().all()) is expect_na
         # non-pandemic seasons are untouched either way
-        assert df[~df["season"].isin(PANDEMIC_SEASONS)]["inc"].notna().all()
+        assert df[df["season"] == "2023/24"]["inc"].notna().all()
 
 
     def test_warns_when_nhsn_hhs_and_drop_pandemic_false(self):

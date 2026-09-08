@@ -9,6 +9,7 @@ import datetime
 
 import pytest
 
+from iddata.constants import PANDEMIC_SEASONS
 from iddata.loader import DiseaseDataLoader
 from iddata.sources.flusurvnet import FluSurvNetDataSource
 from iddata.sources.ilinet import ILINetDataSource
@@ -33,6 +34,16 @@ def test_load_data_sources(sources, expected_source_values):
     as_of = _NSSP_AS_OF if any(isinstance(s, NSSPDataSource) for s in sources) else _DEFAULT_AS_OF
     df = loader.load(sources=sources, as_of=as_of)
     assert set(df["source"].unique()) == expected_source_values
+
+    # drop_pandemic_seasons defaults to True, so no real source should return usable inc for those seasons.
+    # ILINet is currently the only source whose data actually spans one: at these as_of dates NHSN and NSSP
+    # start at 2022/23, and FluSurvNet skips 2020/21 and 2021/22 entirely. Requiring the rows to be present
+    # for ILINet keeps this from silently degrading to a no-op if that upstream coverage ever changes.
+    pandemic_mask = df["season"].isin(PANDEMIC_SEASONS)
+    if any(isinstance(s, ILINetDataSource) for s in sources):
+        assert pandemic_mask.any()
+    if pandemic_mask.any():
+        assert df.loc[pandemic_mask, "inc"].isna().all()
 
 
 def test_nssp_columns():
