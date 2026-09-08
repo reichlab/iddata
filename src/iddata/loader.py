@@ -57,7 +57,7 @@ class DiseaseDataLoader:
 
         if ancillary:
             for anc in ancillary:
-                anc_df = anc.load()
+                anc_df = anc.load(as_of=as_of)
                 join_keys = ["location", "season"] if "season" in anc_df.columns else ["location"]
                 if "agg_level" in anc_df.columns and "agg_level" in df.columns:
                     join_keys.append("agg_level")

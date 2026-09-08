@@ -43,7 +43,7 @@ class NHSNDataSource(DataSource):
         dat = utils.add_season_columns(dat)
 
         if self.rates:
-            pops = _load_us_census()
+            pops = _load_us_census(as_of)
             dat = dat.merge(pops[["location", "season", "pop"]], on=["location", "season"], how="left") \
                 .assign(inc=lambda x: x["inc"] / x["pop"] * 100000)
 
