@@ -62,21 +62,24 @@ class SMHDataSource(DataSource):
         if self.output_type_id:
             filters.append(("output_type_id", "in", self.output_type_id))
 
-        dat = pd.concat(
-            (
-                pd.read_parquet(
-                    urljoin(SMH_DATA_PARQUET_URL, f"{disease_name}_scenario-round{r}_gz.parquet"),
-                    engine="pyarrow",
-                    columns=read_cols,
-                    filters=filters or None,
-                )
-                for r in rounds
-            ),
-            axis=0,
-        )
+        round_frames = []
+        for r in rounds:
+            round_df = pd.read_parquet(
+                urljoin(SMH_DATA_PARQUET_URL, f"{disease_name}_scenario-round{r}_gz.parquet"),
+                engine="pyarrow",
+                columns=read_cols,
+                filters=filters or None,
+            )
+            round_df["round"] = r
+            round_frames.append(round_df)
+        dat = pd.concat(round_frames, axis=0)
 
         target_end_date = pd.to_datetime(dat["origin_date"]) + pd.to_timedelta(7 * dat["horizon"], unit="D")
         dat["wk_end_date"] = target_end_date + pd.offsets.Week(weekday=5, n=0)
+        # `round` is kept because output_type_id is not a stable identifier across rounds: round 4
+        # shares each output_type_id across all locations (a true trajectory-sample id), while rounds
+        # 5+ scope each output_type_id to a single location (an arbitrary per-location index) -- so
+        # otid sampling/filtering downstream must be done within (round, location), not globally.
         dat = dat[
             [
                 "model_id",
@@ -85,6 +88,7 @@ class SMHDataSource(DataSource):
                 "wk_end_date",
                 "output_type_id",
                 "value",
+                "round",
             ]
         ].rename(columns={"value": "inc"})
 
@@ -109,7 +113,7 @@ class SMHDataSource(DataSource):
         )
         dat["source"] = SourceType.SMH.value + "-" + dat["model_id"]
 
-        cols = ["agg_level", "location", "season", "season_week", "wk_end_date", "inc", "source"]
+        cols = ["agg_level", "location", "season", "season_week", "wk_end_date", "inc", "source", "round"]
         if "pop" in dat.columns:
             cols += ["pop", "log_pop"]
         dat = dat[cols]
