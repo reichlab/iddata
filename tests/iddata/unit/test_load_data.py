@@ -36,8 +36,15 @@ def test_load_data_sources():
 
 
 def test_smh_wk_end_date_is_saturday():
-    df = SMHDataSource().load(as_of=_DEFAULT_AS_OF)
+    # rates=False: this test only checks date alignment, not rate conversion, so it doesn't
+    # need to supply population ancillary data.
+    df = SMHDataSource(rates=False).load(as_of=_DEFAULT_AS_OF)
     assert (df["wk_end_date"].dt.dayofweek == 5).all()
+
+
+def test_smh_rates_without_population_ancillary_raises():
+    with pytest.raises(ValueError, match="population data"):
+        SMHDataSource(rates=True).load(as_of=_DEFAULT_AS_OF)
 
 
 def test_nssp_columns():

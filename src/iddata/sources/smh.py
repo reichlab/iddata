@@ -105,6 +105,11 @@ class SMHDataSource(DataSource):
                 dat = dat.merge(anc_df, how="left", on=join_keys)
 
         if self.rates:
+            if "pop" not in dat.columns:
+                raise ValueError(
+                    "SMHDataSource(rates=True) requires population data to convert inc to a rate; "
+                    "pass ancillary=[PopulationData()] to load() (or construct with rates=False)."
+                )
             dat = dat.assign(inc=lambda x: x["inc"] / x["pop"] * 100000)
 
         dat["location"] = "syn-" + dat["location"]
