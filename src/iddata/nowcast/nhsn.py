@@ -9,7 +9,7 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from iddata.constants import NHSN_MAX_DELAY_WEEKS, NHSN_SOURCE_CUTOVER_DATE
+from iddata.constants import NHSN_MAX_DELAY_WEEKS, NHSN_MAX_DELAY_WEEKS_BY_LOCATION, NHSN_SOURCE_CUTOVER_DATE
 from iddata.enums import SourceType
 from iddata.nowcast.base import Nowcaster, register_nowcaster
 from iddata.nowcast.delay_model import apply_delay, estimate_delay
@@ -54,10 +54,23 @@ class NHSNNowcaster(Nowcaster):
 
 
     def correct(self, latest_df: pd.DataFrame, as_of: datetime.date, source: DataSource) -> pd.DataFrame:
-        max_delay = self._resolve_max_delay(source)
-        training_window = self.config.training_window_weeks or max(3 * max_delay, _MIN_DEFAULT_TRAINING_WINDOW_WEEKS)
-        training_window = cap_training_window_to_cutover(as_of, max_delay, training_window)
-        as_of_dates = weekly_as_of_dates(as_of, training_window + max_delay)
+        # Resolve each group's own max_delay up front (NHSN_MAX_DELAY_WEEKS_BY_LOCATION overrides
+        # NHSN_MAX_DELAY_WEEKS[disease] for specific locations whose own fitted delay
+        # distribution converges at a meaningfully different delay -- see that constant's
+        # comment). The vintage-fetch window below has to be wide enough for the largest of
+        # these, even though most groups' own triangle only uses a narrower slice of it.
+        groups = list(latest_df.groupby(["location", "agg_level"]).groups.keys())
+        max_delays = {
+            (location, agg_level): self._resolve_max_delay(source, location, agg_level)
+            for location, agg_level in groups
+        }
+        wide_max_delay = max(max_delays.values(), default=self._resolve_max_delay(source, None, None))
+
+        training_window = self.config.training_window_weeks or max(
+            3 * wide_max_delay, _MIN_DEFAULT_TRAINING_WINDOW_WEEKS
+        )
+        training_window = cap_training_window_to_cutover(as_of, wide_max_delay, training_window)
+        as_of_dates = weekly_as_of_dates(as_of, training_window + wide_max_delay)
 
         vintages = self._cache.get_many(source, as_of_dates)
         n_distinct = self._cache.n_distinct_vintages(as_of_dates)
@@ -82,13 +95,13 @@ class NHSNNowcaster(Nowcaster):
         )
 
         result = latest_df.copy()
-        for (location, agg_level), _ in latest_df.groupby(["location", "agg_level"]):
+        for (location, agg_level), max_delay in max_delays.items():
             self._correct_group(result, vintages, location, agg_level, as_of, max_delay, training_window)
 
         return result
 
 
-    def _resolve_max_delay(self, source: DataSource) -> int:
+    def _resolve_max_delay(self, source: DataSource, location: str | None, agg_level: str | None) -> int:
         if self.config.max_delay_weeks is not None:
             return self.config.max_delay_weeks
         disease = getattr(source, "disease", None)
@@ -97,7 +110,8 @@ class NHSNNowcaster(Nowcaster):
                 f"No static NHSN_MAX_DELAY_WEEKS default for disease={disease!r}; "
                 "pass NowcastConfig(max_delay_weeks=...) explicitly."
             )
-        return NHSN_MAX_DELAY_WEEKS[disease]
+        per_location = NHSN_MAX_DELAY_WEEKS_BY_LOCATION.get(disease, {})
+        return per_location.get((location, agg_level), NHSN_MAX_DELAY_WEEKS[disease])
 
 
     def _correct_group(

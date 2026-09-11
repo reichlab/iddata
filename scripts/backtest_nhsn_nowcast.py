@@ -7,15 +7,19 @@ This is a maintainer-run diagnostic, NOT a CI gate -- see the project plan's "Em
 Validation Results" section for why. Real-data backtesting (this script, run across 25
 historical date/location combinations spanning the 2024/25 flu season) found that nowcast
 correction does NOT reliably reduce error: it INCREASED total aggregate error under every
-max_delay tried. Two root causes are documented in the plan and in `iddata.constants`'
-`NHSN_MAX_DELAY_WEEKS` comment: (1) a single pooled/national delay-PMF doesn't transfer to
-individual locations, whose completion curves vary far more than a rescaled shared curve; (2)
-the completion profile is not stable over time, and its time-variation differs between the
-national aggregate and individual states.
+max_delay tried, including a subsequent per-location max_delay attempt (`NHSN_MAX_DELAY_WEEKS_BY_
+LOCATION`), which made it MORE THAN DOUBLE WORSE (30 date/location combinations including PA:
+total_raw_error=26.68, total_corrected_error=59.36) rather than better -- see `iddata.constants`'
+`NHSN_MAX_DELAY_WEEKS_BY_LOCATION` comment and the plan's "v2 Attempt: Per-Location max_delay"
+section for why (short answer: fitting a delay-PMF from one location's own limited training
+window is noisier than the pooled fit, and that noise cost more accuracy than the per-location
+signal gained back, even for locations whose own fitted max_delay matched independent
+ground-truth evidence).
 
 Nowcasting remains implemented and opt-in (off by default everywhere) but is NOT recommended for
-production use pending a v2. Re-run this script after any v2 change (e.g. per-location fitting)
-to check whether it actually improves on these numbers before considering production use.
+production use pending a v2 that addresses the per-location noise problem (e.g. shrinkage/partial
+pooling toward the disease-level default, not a naive per-location fit). Re-run this script after
+any future v2 change to check whether it actually improves on these numbers first.
 
 Usage
 -----
@@ -47,14 +51,20 @@ _BACKTEST_AS_OF_DATES = [
 ]
 
 # National aggregate plus a handful of representative states: two large (more stable, closer to
-# national in character) and two small/mid-size (noisier raw counts, where correction behavior
-# could plausibly differ most from the smoothed national series).
+# national in character), two small/mid-size (noisier raw counts, where correction behavior
+# could plausibly differ most from the smoothed national series), and PA -- included specifically
+# to check the per-location NHSN_MAX_DELAY_WEEKS_BY_LOCATION calibration's suspected failure mode
+# (see that constant's comment): PA independently shows a genuinely low completion ceiling that
+# needs a LONGER max_delay, but the per-location chain-ladder fit recommends a SHORTER one
+# (max_delay=2), which -- if that fit is spurious small-sample noise rather than real signal --
+# should make PA's corrected error worse, not better.
 _LOCATIONS = [
     ("US", "national"),  # national aggregate
     ("06", "state"),      # California -- large
     ("36", "state"),      # New York -- large
-    ("34", "state"),      # New Jersey -- mid-size
+    ("34", "state"),      # New Jersey -- mid-size, known fast/complete convergence
     ("50", "state"),      # Vermont -- small
+    ("42", "state"),      # Pennsylvania -- suspected per-location max_delay failure case
 ]
 
 _TRUTH_LAG_WEEKS = 12

@@ -1,18 +1,20 @@
 #!/usr/bin/env python
 """
-Offline/maintainer-run analysis to (re)derive the static `NHSN_MAX_DELAY_WEEKS` constants in
-`iddata.constants`, following the same exploratory approach as the `baselinenowcast` R
-package: fit a delay distribution over a wide historical window of NHSN vintages, then find
-the delay at which a `completeness_threshold` proportion of eventual cases have been reported.
+Offline/maintainer-run analysis to (re)derive the static `NHSN_MAX_DELAY_WEEKS` (and, with
+--per-location, `NHSN_MAX_DELAY_WEEKS_BY_LOCATION`) constants in `iddata.constants`, following
+the same exploratory approach as the `baselinenowcast` R package: fit a delay distribution over
+a wide historical window of NHSN vintages, then find the delay at which a
+`completeness_threshold` proportion of eventual cases have been reported.
 
 This is NOT run as part of any automated pipeline or CI job -- run it by hand (e.g. once a
 season, or if backtest results suggest NHSN's reporting-delay profile has drifted), review the
-printed recommendation, and update `iddata.constants.NHSN_MAX_DELAY_WEEKS` manually.
+printed recommendation, and update `iddata.constants` manually.
 
 Usage
 -----
     uv run python scripts/estimate_nhsn_max_delay.py
     uv run python scripts/estimate_nhsn_max_delay.py --as-of 2026-07-25 --completeness-threshold 0.95
+    uv run python scripts/estimate_nhsn_max_delay.py --per-location
 """
 
 from __future__ import annotations
@@ -31,18 +33,23 @@ from iddata.nowcast.vintage_cache import VintageCache
 from iddata.sources.nhsn import NHSNDataSource
 
 
-def analyze_disease(
+def _fetch_location_triangles(
     disease: Disease,
     as_of: datetime.date,
     wide_max_delay_weeks: int,
     training_window_weeks: int,
-    completeness_threshold: float,
-) -> int:
+) -> tuple[dict[tuple[str, str], np.ndarray], int]:
     """
-    Fit a single delay distribution pooled across every reporting location (all states plus
-    national) for `disease`, rather than relying on the national series alone -- pooling gives
-    many more reference-week observations than any one series alone provides, which matters
-    given NHSN's short calendar vintage history.
+    Fetch NHSN vintages and build one reporting triangle per (location, agg_level) group.
+
+    Shared by the pooled analysis (which stacks these into one combined fit, giving many more
+    reference-week observations than any one series alone provides -- useful given NHSN's short
+    calendar vintage history) and the per-location analysis (which fits each one separately, to
+    check whether individual locations' own delay distributions differ enough from the pooled
+    fit to warrant their own max_delay -- see the project plan's "Empirical Validation Results"
+    section, which found real per-location heterogeneity even though `NHSNNowcaster` already
+    fits its delay-PMF *shape* per-location at nowcast time; only the `max_delay` threshold
+    itself has been a single pooled/global constant so far).
     """
     capped_training_window_weeks = cap_training_window_to_cutover(as_of, wide_max_delay_weeks, training_window_weeks)
     if capped_training_window_weeks < training_window_weeks:
@@ -64,7 +71,7 @@ def analyze_disease(
     latest = vintages[max(vintages)]
     location_groups = latest[["location", "agg_level"]].drop_duplicates().itertuples(index=False)
 
-    triangles = []
+    triangles = {}
     n_skipped = 0
     for location, agg_level in location_groups:
         series_by_vintage = {}
@@ -80,12 +87,56 @@ def analyze_disease(
         if np.isnan(matrix[0, :]).any():
             n_skipped += 1
             continue
-        triangles.append(matrix)
+        triangles[(location, agg_level)] = matrix
 
+    return triangles, n_skipped
+
+
+def analyze_disease(
+    disease: Disease,
+    as_of: datetime.date,
+    wide_max_delay_weeks: int,
+    training_window_weeks: int,
+    completeness_threshold: float,
+) -> int:
+    """Fit a single delay distribution pooled across every reporting location for `disease`."""
+    triangles, n_skipped = _fetch_location_triangles(disease, as_of, wide_max_delay_weeks, training_window_weeks)
     print(f"  pooling {len(triangles)} location/agg_level series ({n_skipped} skipped for insufficient history)")
-    pooled = stack_triangles(triangles)
+    pooled = stack_triangles(list(triangles.values()))
     pmf = estimate_delay(pooled)
     return estimate_max_delay(pmf, completeness_threshold=completeness_threshold)
+
+
+def analyze_disease_per_location(
+    disease: Disease,
+    as_of: datetime.date,
+    wide_max_delay_weeks: int,
+    training_window_weeks: int,
+    completeness_threshold: float,
+) -> dict[tuple[str, str], int]:
+    """
+    Fit a separate delay distribution for each (location, agg_level) group, rather than pooling.
+    Locations whose fitted PMF doesn't reach `completeness_threshold` within
+    `wide_max_delay_weeks` columns are reported but omitted from the returned dict -- they should
+    fall back to the pooled/disease-level default (or get a wider `--wide-max-delay-weeks` re-run)
+    rather than being force-fit to an unreliable estimate.
+    """
+    triangles, n_skipped = _fetch_location_triangles(disease, as_of, wide_max_delay_weeks, training_window_weeks)
+    print(f"  fitting {len(triangles)} location/agg_level series individually "
+          f"({n_skipped} skipped for insufficient history)")
+
+    recommended = {}
+    n_incomplete = 0
+    for (location, agg_level), matrix in triangles.items():
+        pmf = estimate_delay(matrix)
+        try:
+            recommended[(location, agg_level)] = estimate_max_delay(pmf, completeness_threshold=completeness_threshold)
+        except ValueError:
+            n_incomplete += 1
+    print(f"  {n_incomplete} location/agg_level series did not reach completeness_threshold="
+          f"{completeness_threshold} within {wide_max_delay_weeks} delay columns; "
+          "these will fall back to the disease-level default")
+    return recommended
 
 
 def main():
@@ -98,6 +149,9 @@ def main():
                          help="Number of trailing reference weeks to fit the delay distribution over.")
     parser.add_argument("--completeness-threshold", type=float, default=0.95,
                          help="Proportion of eventual cases that must be reported by the estimated max delay.")
+    parser.add_argument("--per-location", action="store_true",
+                         help="Also fit a separate max_delay per (location, agg_level) instead of only the "
+                              "pooled/disease-level default, and print a NHSN_MAX_DELAY_WEEKS_BY_LOCATION suggestion.")
     args = parser.parse_args()
 
     as_of = args.as_of or datetime.date.today()
@@ -111,6 +165,7 @@ def main():
         as_of = snapped
 
     recommended = {}
+    recommended_by_location = {}
     for disease in NHSN_MAX_DELAY_WEEKS:
         print(f"Analyzing NHSN/{disease.value} as of {as_of}...")
         recommended[disease] = analyze_disease(
@@ -120,11 +175,35 @@ def main():
         flag = "" if recommended[disease] == current else "  <-- differs from current constant"
         print(f"  current={current} weeks, recommended={recommended[disease]} weeks{flag}")
 
+        if args.per_location:
+            print(f"Analyzing NHSN/{disease.value} per-location as of {as_of}...")
+            recommended_by_location[disease] = analyze_disease_per_location(
+                disease, as_of, args.wide_max_delay_weeks, args.training_window_weeks, args.completeness_threshold
+            )
+            for (location, agg_level), value in sorted(recommended_by_location[disease].items()):
+                flag = "" if value == recommended[disease] else "  <-- differs from pooled recommendation"
+                print(f"  {location}/{agg_level}: {value} weeks{flag}")
+
     print("\nReview the above, then update iddata.constants.NHSN_MAX_DELAY_WEEKS if warranted:\n")
     print("NHSN_MAX_DELAY_WEEKS: dict[Disease, int] = {")
     for disease, value in recommended.items():
         print(f"    Disease.{disease.name}: {value},")
     print("}")
+
+    if args.per_location:
+        print("\nAnd NHSN_MAX_DELAY_WEEKS_BY_LOCATION, keeping only entries that meaningfully differ from the "
+              "pooled default above (omitted entries fall back to it automatically):\n")
+        print("NHSN_MAX_DELAY_WEEKS_BY_LOCATION: dict[Disease, dict[tuple[str, str], int]] = {")
+        for disease, by_location in recommended_by_location.items():
+            pooled_default = recommended[disease]
+            differing = {k: v for k, v in sorted(by_location.items()) if v != pooled_default}
+            if not differing:
+                continue
+            print(f"    Disease.{disease.name}: {{")
+            for (location, agg_level), value in differing.items():
+                print(f'        ("{location}", "{agg_level}"): {value},')
+            print("    },")
+        print("}")
 
 
 if __name__ == "__main__":
