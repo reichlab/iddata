@@ -16,15 +16,28 @@ window is noisier than the pooled fit, and that noise cost more accuracy than th
 signal gained back, even for locations whose own fitted max_delay matched independent
 ground-truth evidence).
 
+A follow-up v2 attempt (shrinking each location's own fitted delay-PMF toward a live pooled PMF,
+weighted by data volume -- `NowcastConfig.pmf_shrinkage_k`, see its docstring) roughly HALVED the
+damage from pure per-location fitting but did NOT flip the sign. Sweeping pmf_shrinkage_k on the
+same 30 combinations (raw=26.68 throughout): k=0 (no shrinkage) -> corrected=58.33; k=2000 ->
+35.22; k=10000 (the default) -> 34.76; k=50000 -> 34.67 (diminishing returns above ~10000).
+Shrinkage is a real, confirmed fix for the small-sample chain-ladder noise problem -- but even
+the fully-pooled limit still leaves correction worse than raw, because the surviving error
+concentrates specifically on dates near the 2024/25 season's sharp Feb-2025 peak (e.g. NJ and PA
+are close to raw on 3 of 5 backtest dates but blow up specifically on 2025-02-08/02-15). That's
+the OTHER root cause (time-varying completion near a peak, not location noise), which shrinkage
+does not address at all.
+
 Nowcasting remains implemented and opt-in (off by default everywhere) but is NOT recommended for
-production use pending a v2 that addresses the per-location noise problem (e.g. shrinkage/partial
-pooling toward the disease-level default, not a naive per-location fit). Re-run this script after
-any future v2 change to check whether it actually improves on these numbers first.
+production use pending a v2 that addresses time-varying completion near a peak (shrinkage already
+addresses the location-noise half of the problem). Re-run this script after any future v2 change
+to check whether it actually improves on these numbers first.
 
 Usage
 -----
     uv run python scripts/backtest_nhsn_nowcast.py
     uv run python scripts/backtest_nhsn_nowcast.py --max-delay-weeks 2
+    uv run python scripts/backtest_nhsn_nowcast.py --pmf-shrinkage-k 0
 """
 
 from __future__ import annotations
@@ -111,11 +124,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--max-delay-weeks", type=int, default=None,
                          help="Override max_delay_weeks (default: look up the calibrated NHSN_MAX_DELAY_WEEKS constant).")
+    parser.add_argument("--pmf-shrinkage-k", type=float, default=10_000.0,
+                         help="NowcastConfig.pmf_shrinkage_k -- pass 0 to disable shrinkage (pure per-location PMF fit).")
     parser.add_argument("--disease", type=str, default="flu", choices=["flu", "covid"])
     args = parser.parse_args()
 
     disease = Disease.FLU if args.disease == "flu" else Disease.COVID
-    nowcast_config = NowcastConfig(min_vintages=8, max_delay_weeks=args.max_delay_weeks)
+    nowcast_config = NowcastConfig(
+        min_vintages=8, max_delay_weeks=args.max_delay_weeks, pmf_shrinkage_k=args.pmf_shrinkage_k
+    )
+    print(f"pmf_shrinkage_k={args.pmf_shrinkage_k}")
 
     results = []
     for as_of in _BACKTEST_AS_OF_DATES:

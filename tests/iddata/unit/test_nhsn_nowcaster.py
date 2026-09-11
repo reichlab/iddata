@@ -6,13 +6,16 @@ tests/iddata/integration/test_nowcast_nhsn.py and scripts/backtest_nhsn_nowcast.
 import datetime
 from unittest.mock import MagicMock
 
+import numpy as np
 import pandas as pd
 import pytest
 
 from iddata.enums import Disease
 from iddata.nowcast import nhsn
 from iddata.nowcast.base import NowcastConfig
+from iddata.nowcast.delay_model import estimate_delay
 from iddata.nowcast.nhsn import NHSNNowcaster
+from iddata.nowcast.triangle import stack_triangles
 from iddata.nowcast.vintage_cache import VintageCache
 
 
@@ -91,8 +94,8 @@ class TestCorrectDispatchesPerLocationMaxDelay:
 
         recorded_calls = []
 
-        def _fake_correct_group(self, result, vintages, location, agg_level, as_of, max_delay, training_window):
-            recorded_calls.append((location, agg_level, max_delay, training_window))
+        def _fake_correct_group(self, result, wide_matrix, wide_ref_dates, location, agg_level, max_delay, pooled_pmf):
+            recorded_calls.append((location, agg_level, max_delay, wide_matrix.shape[1]))
 
         monkeypatch.setattr(NHSNNowcaster, "_correct_group", _fake_correct_group)
 
@@ -101,13 +104,122 @@ class TestCorrectDispatchesPerLocationMaxDelay:
         with pytest.warns(UserWarning, match="experimental"):
             nowcaster.correct(self._make_latest_df(), as_of, _make_source())
 
-        by_location = {(loc, agg): (max_delay, tw) for loc, agg, max_delay, tw in recorded_calls}
+        by_location = {(loc, agg): (max_delay, wide_cols) for loc, agg, max_delay, wide_cols in recorded_calls}
         assert by_location[("34", "state")][0] == 2  # per-location override
         assert by_location[("36", "state")][0] == 5  # disease-level default
-        # Both groups share the same training_window, computed once from the WIDE max_delay (5).
-        assert by_location[("34", "state")][1] == by_location[("36", "state")][1]
+        # Both groups receive the SAME wide-width matrix (built once from the WIDE max_delay, 5),
+        # even though "34" will slice it down to its own smaller max_delay internally.
+        assert by_location[("34", "state")][1] == by_location[("36", "state")][1] == 6  # wide_max_delay(5) + 1
 
         # The vintage fetch window must be sized off the wide max_delay (5), not the smaller
         # per-location override (2) -- otherwise the "36" group would be starved of vintages.
-        training_window = by_location[("34", "state")][1]
+        # NowcastConfig(min_vintages=1) with no explicit training_window_weeks resolves to
+        # max(3 * wide_max_delay(5), _MIN_DEFAULT_TRAINING_WINDOW_WEEKS(12)) == 15, unaffected by
+        # the NHSN_SOURCE_CUTOVER_DATE cap since as_of=2026-01-03 is far past it.
+        training_window = 15
         assert len(captured_as_of_dates["value"]) == training_window + 5
+
+
+class TestFitPooledPmf:
+    def test_pools_clean_groups_matching_direct_stack_triangles_computation(self):
+        nowcaster = NHSNNowcaster(NowcastConfig())
+        m1 = np.array([[10.0, 2.0], [8.0, 3.0], [12.0, 4.0]])
+        m2 = np.array([[5.0, 1.0], [6.0, 2.0], [7.0, 1.0]])
+        wide_triangles = {("A", "state"): (m1, []), ("B", "state"): (m2, [])}
+
+        result = nowcaster._fit_pooled_pmf(wide_triangles)
+
+        expected = estimate_delay(stack_triangles([m1, m2]))
+        np.testing.assert_allclose(result, expected)
+
+
+    def test_skips_group_with_incomplete_oldest_row(self):
+        nowcaster = NHSNNowcaster(NowcastConfig())
+        clean = np.array([[10.0, 2.0], [8.0, 3.0], [12.0, 4.0]])
+        # Oldest row (index 0) has NaN -- insufficient history for this group's own chain-ladder
+        # invariant, so it must be excluded from the pool entirely.
+        incomplete = np.array([[np.nan, np.nan], [6.0, 2.0], [7.0, 1.0]])
+        wide_triangles = {("A", "state"): (clean, []), ("B", "state"): (incomplete, [])}
+
+        result = nowcaster._fit_pooled_pmf(wide_triangles)
+
+        expected = estimate_delay(clean)  # only the clean group contributes
+        np.testing.assert_allclose(result, expected)
+
+
+    def test_trims_all_nan_trailing_row_before_pooling(self):
+        nowcaster = NHSNNowcaster(NowcastConfig())
+        # Trailing row (the current, not-yet-reported reference week) has zero observations at
+        # every delay -- must be dropped before fitting, same as _correct_group does, or it
+        # would corrupt/crash estimate_delay the same way the original single-group bug did.
+        m1 = np.array([[10.0, 2.0], [8.0, 3.0], [np.nan, np.nan]])
+        wide_triangles = {("A", "state"): (m1, [])}
+
+        result = nowcaster._fit_pooled_pmf(wide_triangles)
+
+        expected = estimate_delay(m1[:2])
+        np.testing.assert_allclose(result, expected)
+
+
+    def test_returns_none_when_no_groups_poolable(self):
+        nowcaster = NHSNNowcaster(NowcastConfig())
+        incomplete = np.array([[np.nan, np.nan], [6.0, 2.0]])
+        wide_triangles = {("A", "state"): (incomplete, [])}
+
+        assert nowcaster._fit_pooled_pmf(wide_triangles) is None
+
+
+class TestShrinkTowardPooled:
+    def test_returns_own_pmf_unchanged_when_no_pooled_pmf(self):
+        nowcaster = NHSNNowcaster(NowcastConfig())
+        own_pmf = np.array([0.7, 0.3])
+        matrix = np.array([[10.0, 2.0], [8.0, 3.0]])
+
+        result = nowcaster._shrink_toward_pooled(own_pmf, matrix, pooled_pmf=None)
+
+        np.testing.assert_array_equal(result, own_pmf)
+
+
+    def test_weight_is_one_half_when_volume_equals_shrinkage_k(self):
+        nowcaster = NHSNNowcaster(NowcastConfig(pmf_shrinkage_k=20.0))
+        own_pmf = np.array([0.8, 0.2])
+        pooled_pmf = np.array([0.4, 0.6])
+        matrix = np.array([[10.0, 2.0], [8.0, 0.0]])  # nansum == 20 == pmf_shrinkage_k -> weight=0.5
+
+        result = nowcaster._shrink_toward_pooled(own_pmf, matrix, pooled_pmf)
+
+        np.testing.assert_allclose(result, 0.5 * own_pmf + 0.5 * pooled_pmf)
+
+
+    def test_weight_approaches_one_for_large_volume(self):
+        nowcaster = NHSNNowcaster(NowcastConfig(pmf_shrinkage_k=10.0))
+        own_pmf = np.array([0.8, 0.2])
+        pooled_pmf = np.array([0.4, 0.6])
+        matrix = np.array([[1_000_000.0, 0.0]])
+
+        result = nowcaster._shrink_toward_pooled(own_pmf, matrix, pooled_pmf)
+
+        np.testing.assert_allclose(result, own_pmf, atol=1e-4)
+
+
+    def test_weight_approaches_zero_for_tiny_volume(self):
+        nowcaster = NHSNNowcaster(NowcastConfig(pmf_shrinkage_k=1_000_000.0))
+        own_pmf = np.array([0.8, 0.2])
+        pooled_pmf = np.array([0.4, 0.6])
+        matrix = np.array([[1.0, 0.0]])
+
+        result = nowcaster._shrink_toward_pooled(own_pmf, matrix, pooled_pmf)
+
+        np.testing.assert_allclose(result, pooled_pmf, atol=1e-4)
+
+
+    def test_truncates_and_renormalizes_pooled_pmf_to_own_width(self):
+        nowcaster = NHSNNowcaster(NowcastConfig(pmf_shrinkage_k=10.0))
+        own_pmf = np.array([0.9, 0.1])  # this group's own (narrower) max_delay
+        pooled_pmf = np.array([0.5, 0.3, 0.2])  # pooled fit at the wider max_delay
+        matrix = np.array([[10.0, 0.0]])  # nansum == 10 == pmf_shrinkage_k -> weight=0.5
+
+        result = nowcaster._shrink_toward_pooled(own_pmf, matrix, pooled_pmf)
+
+        truncated_renormalized = np.array([0.5, 0.3]) / 0.8
+        np.testing.assert_allclose(result, 0.5 * own_pmf + 0.5 * truncated_renormalized)

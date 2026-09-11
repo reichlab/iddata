@@ -13,7 +13,7 @@ from iddata.constants import NHSN_MAX_DELAY_WEEKS, NHSN_MAX_DELAY_WEEKS_BY_LOCAT
 from iddata.enums import SourceType
 from iddata.nowcast.base import Nowcaster, register_nowcaster
 from iddata.nowcast.delay_model import apply_delay, estimate_delay
-from iddata.nowcast.triangle import build_increment_triangle, weekly_as_of_dates
+from iddata.nowcast.triangle import build_increment_triangle, stack_triangles, weekly_as_of_dates
 from iddata.nowcast.vintage_cache import VintageCache
 from iddata.sources.base import DataSource
 
@@ -94,9 +94,27 @@ class NHSNNowcaster(Nowcaster):
             UserWarning,
         )
 
+        # Build every group's own triangle at the WIDE width up front. This is needed both to
+        # correct that group (sliced down to its own max_delay below) and to fit the pooled PMF
+        # that group's own fit gets shrunk toward -- see _shrink_toward_pooled's docstring for
+        # why a pure per-location fit was tried and found to make things worse, not better.
+        wide_triangles = {}
+        for location, agg_level in max_delays:
+            vintage_series = {}
+            for v, df in vintages.items():
+                sub = df[(df["location"] == location) & (df["agg_level"] == agg_level)]
+                if not sub.empty:
+                    vintage_series[v] = sub.set_index("wk_end_date")["inc"]
+            wide_triangles[(location, agg_level)] = build_increment_triangle(
+                vintage_series, as_of, wide_max_delay, training_window
+            )
+
+        pooled_pmf = self._fit_pooled_pmf(wide_triangles)
+
         result = latest_df.copy()
         for (location, agg_level), max_delay in max_delays.items():
-            self._correct_group(result, vintages, location, agg_level, as_of, max_delay, training_window)
+            wide_matrix, ref_dates = wide_triangles[(location, agg_level)]
+            self._correct_group(result, wide_matrix, ref_dates, location, agg_level, max_delay, pooled_pmf)
 
         return result
 
@@ -114,23 +132,71 @@ class NHSNNowcaster(Nowcaster):
         return per_location.get((location, agg_level), NHSN_MAX_DELAY_WEEKS[disease])
 
 
+    def _fit_pooled_pmf(self, wide_triangles: dict[tuple[str, str], tuple[np.ndarray, list]]) -> np.ndarray | None:
+        """Fit one delay-PMF pooled across every (location, agg_level) group's own WIDE-width
+        triangle, for _shrink_toward_pooled to blend individual groups' own fits toward. Mirrors
+        scripts/estimate_nhsn_max_delay.py's pooling, but computed live from whatever vintages
+        this correct() call already fetched, rather than a separate offline analysis."""
+        poolable = []
+        for matrix, _ in wide_triangles.values():
+            # Same two guards as _correct_group: skip groups with insufficient history for the
+            # oldest row (this pooled fit's own chain-ladder invariant), and trim/skip rows or
+            # groups with zero observations at every delay (e.g. the current, not-yet-reported
+            # reference week) -- otherwise those NaN/all-zero rows corrupt estimate_delay the
+            # same way they would in a single-group fit.
+            if np.isnan(matrix[0, :]).any():
+                continue
+            has_any_observation = ~np.isnan(matrix).all(axis=1)
+            trimmed = matrix[has_any_observation]
+            if trimmed.shape[0] == 0 or np.nansum(trimmed) == 0:
+                continue
+            poolable.append(trimmed)
+        if not poolable:
+            return None
+        return estimate_delay(stack_triangles(poolable))
+
+
+    def _shrink_toward_pooled(self, own_pmf: np.ndarray, matrix: np.ndarray, pooled_pmf: np.ndarray | None) -> np.ndarray:
+        """
+        Blend a group's own fitted delay-PMF with the pooled PMF, weighted by that group's own
+        data volume: `w = n / (n + pmf_shrinkage_k)`, `n = total case count in its own triangle`.
+
+        A prior v2 attempt (`NHSN_MAX_DELAY_WEEKS_BY_LOCATION`, see its comment in
+        `iddata.constants`) fit each location's delay distribution purely from its own ~17-week
+        training window and found this made backtest error more than double, including for New
+        Jersey -- a location whose own max_delay happened to match independent ground truth.
+        Fitting a chain-ladder ratio estimator from one location's own limited history is
+        apparently noisy enough that the estimation error costs more accuracy than correctly
+        capturing genuine per-location structure gains back. Shrinking toward the pooled fit
+        (which has far more effective observations, since `estimate_delay`'s ratios are sums
+        across every pooled group's reference weeks) is the standard fix for exactly this
+        small-sample chain-ladder problem.
+        """
+        if pooled_pmf is None:
+            return own_pmf
+        pooled_pmf = pooled_pmf[: len(own_pmf)]
+        pooled_pmf = pooled_pmf / pooled_pmf.sum()
+        n = np.nansum(matrix)
+        weight = n / (n + self.config.pmf_shrinkage_k)
+        return weight * own_pmf + (1 - weight) * pooled_pmf
+
+
     def _correct_group(
         self,
         result: pd.DataFrame,
-        vintages: dict[datetime.date, pd.DataFrame],
+        wide_matrix: np.ndarray,
+        wide_ref_dates: list[datetime.date],
         location: str,
         agg_level: str,
-        as_of: datetime.date,
         max_delay: int,
-        training_window: int,
+        pooled_pmf: np.ndarray | None,
     ) -> None:
-        vintage_series = {}
-        for v, df in vintages.items():
-            sub = df[(df["location"] == location) & (df["agg_level"] == agg_level)]
-            if not sub.empty:
-                vintage_series[v] = sub.set_index("wk_end_date")["inc"]
-
-        matrix, ref_dates = build_increment_triangle(vintage_series, as_of, max_delay, training_window)
+        # wide_matrix's increments are computed column-by-column left to right (see
+        # build_increment_triangle/_increments_from_cumulative), so truncating to this group's
+        # own (possibly narrower) max_delay here gives exactly the same values as building the
+        # triangle directly at that width.
+        matrix = wide_matrix[:, : max_delay + 1]
+        ref_dates = wide_ref_dates
 
         # Reference weeks with zero observations at any delay (e.g. the most recent week,
         # which -- given NHSN's structural ~1-week minimum publication lag -- no vintage has
@@ -155,7 +221,8 @@ class NHSNNowcaster(Nowcaster):
         if np.nansum(matrix) == 0:
             return
 
-        pmf = estimate_delay(matrix)
+        own_pmf = estimate_delay(matrix)
+        pmf = self._shrink_toward_pooled(own_pmf, matrix, pooled_pmf)
         filled = apply_delay(matrix, pmf)
         nowcasted_totals = filled.sum(axis=1)
 

@@ -40,6 +40,22 @@ class NowcastConfig:
         met. "raise": raise a ValueError instead.
     sources : tuple[SourceType, ...]
         Which sources to correct, if a registered `Nowcaster` exists for them.
+    pmf_shrinkage_k : float
+        Shrinks each (location, agg_level) group's own fitted delay-PMF toward a PMF pooled
+        across every group, weighted by that group's own data volume `n` (total case count in
+        its fitting window) via `w = n / (n + pmf_shrinkage_k)` -- i.e. `pmf_shrinkage_k` is the
+        volume at which a group's own fit and the pooled fit get equal weight. Only used by
+        `NHSNNowcaster`; see its module docstring and the project plan's "v2 Attempt" sections.
+        A pure per-location fit (`pmf_shrinkage_k=0`) was tried and made backtest error more than
+        double vs. leaving the data uncorrected, even for locations whose own fit was otherwise
+        accurate -- a small per-location training window makes the chain-ladder ratio estimator
+        too noisy on its own. Shrinking toward the pooled fit roughly halved that damage (a
+        real, confirmed improvement over pure per-location fitting) but did NOT flip the sign:
+        even the fully-pooled limit still left correction worse than raw, because the surviving
+        error concentrates specifically on dates near a sharp seasonal peak (a different failure
+        mode -- time-varying completion, not location noise -- that shrinkage doesn't address).
+        Diminishing returns set in quickly above ~10,000 in the one backtest run so far; treat
+        the default as a reasonable starting point, not a finely-tuned value.
     """
 
     max_delay_weeks: int | None = None
@@ -47,6 +63,7 @@ class NowcastConfig:
     min_vintages: int = 10
     on_insufficient_data: str = "passthrough"
     sources: tuple[SourceType, ...] = (SourceType.NHSN,)
+    pmf_shrinkage_k: float = 10_000.0
 
 
     def __post_init__(self):
@@ -57,6 +74,8 @@ class NowcastConfig:
                 f"NowcastConfig.on_insufficient_data must be 'passthrough' or 'raise'; "
                 f"got {self.on_insufficient_data!r}"
             )
+        if self.pmf_shrinkage_k < 0:
+            raise ValueError(f"NowcastConfig.pmf_shrinkage_k must be >= 0; got {self.pmf_shrinkage_k}")
 
 
 class Nowcaster(ABC):
