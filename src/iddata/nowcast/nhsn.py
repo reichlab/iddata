@@ -10,12 +10,18 @@ import numpy as np
 import pandas as pd
 
 from iddata.constants import NHSN_MAX_DELAY_WEEKS, NHSN_MAX_DELAY_WEEKS_BY_LOCATION, NHSN_SOURCE_CUTOVER_DATE
-from iddata.enums import SourceType
+from iddata.enums import Disease, SourceType
 from iddata.nowcast.base import Nowcaster, register_nowcaster
 from iddata.nowcast.delay_model import apply_delay, estimate_delay, estimate_delay_pooled
 from iddata.nowcast.triangle import build_increment_triangle, weekly_as_of_dates
 from iddata.nowcast.vintage_cache import VintageCache
 from iddata.sources.base import DataSource
+from iddata.sources.nhsn import NHSNDataSource
+
+# The current NHSN source supports only these two diseases, both reported through the same
+# underlying hospital submission pipeline -- see NowcastConfig.pool_sibling_disease's docstring
+# for the empirical basis for treating them as sharing reporting-delay characteristics.
+_SIBLING_DISEASE = {Disease.FLU: Disease.COVID, Disease.COVID: Disease.FLU}
 
 # baselinenowcast's own "V=3xD reference times for total training volume" convention assumes D
 # is measured in days, where D is typically large enough (e.g. ~25 days in its own examples)
@@ -51,6 +57,11 @@ class NHSNNowcaster(Nowcaster):
     def __init__(self, config):
         super().__init__(config)
         self._cache = VintageCache()
+        # Separate cache instance for sibling-disease vintages (see pool_sibling_disease):
+        # VintageCache keys purely by as_of date, so sharing self._cache across two different
+        # DataSources (different diseases) for the same as_of dates would silently collide and
+        # return one disease's data for the other's fetch.
+        self._sibling_cache = VintageCache()
 
 
     def correct(self, latest_df: pd.DataFrame, as_of: datetime.date, source: DataSource) -> pd.DataFrame:
@@ -110,13 +121,55 @@ class NHSNNowcaster(Nowcaster):
             )
 
         pooled_pmf = self._fit_pooled_pmf(wide_triangles)
+        sibling_wide_triangles = self._fetch_sibling_wide_triangles(
+            source, as_of, as_of_dates, wide_max_delay, training_window, max_delays
+        )
 
         result = latest_df.copy()
         for (location, agg_level), max_delay in max_delays.items():
             wide_matrix, ref_dates = wide_triangles[(location, agg_level)]
-            self._correct_group(result, wide_matrix, ref_dates, location, agg_level, max_delay, pooled_pmf)
+            sibling_wide_matrix = (
+                sibling_wide_triangles[(location, agg_level)][0] if sibling_wide_triangles is not None else None
+            )
+            self._correct_group(
+                result, wide_matrix, ref_dates, location, agg_level, max_delay, pooled_pmf, sibling_wide_matrix
+            )
 
         return result
+
+
+    def _fetch_sibling_wide_triangles(
+        self,
+        source: DataSource,
+        as_of: datetime.date,
+        as_of_dates: list[datetime.date],
+        wide_max_delay: int,
+        training_window: int,
+        max_delays: dict[tuple[str, str], int],
+    ) -> dict[tuple[str, str], tuple[np.ndarray, list]] | None:
+        """Fetch the sibling disease's (flu<->COVID) vintages and build its own WIDE-width
+        triangle per group, for _correct_group to pool into each group's own-fit matrix. Returns
+        None if pool_sibling_disease is off or the source's disease has no sibling."""
+        if not self.config.pool_sibling_disease:
+            return None
+        sibling_disease = _SIBLING_DISEASE.get(getattr(source, "disease", None))
+        if sibling_disease is None:
+            return None
+
+        sibling_source = NHSNDataSource(disease=sibling_disease, rates=getattr(source, "rates", True))
+        sibling_vintages = self._sibling_cache.get_many(sibling_source, as_of_dates)
+
+        sibling_wide_triangles = {}
+        for location, agg_level in max_delays:
+            vintage_series = {}
+            for v, df in sibling_vintages.items():
+                sub = df[(df["location"] == location) & (df["agg_level"] == agg_level)]
+                if not sub.empty:
+                    vintage_series[v] = sub.set_index("wk_end_date")["inc"]
+            sibling_wide_triangles[(location, agg_level)] = build_increment_triangle(
+                vintage_series, as_of, wide_max_delay, training_window
+            )
+        return sibling_wide_triangles
 
 
     def _resolve_max_delay(self, source: DataSource, location: str | None, agg_level: str | None) -> int:
@@ -190,6 +243,7 @@ class NHSNNowcaster(Nowcaster):
         agg_level: str,
         max_delay: int,
         pooled_pmf: np.ndarray | None,
+        sibling_wide_matrix: np.ndarray | None = None,
     ) -> None:
         # wide_matrix's increments are computed column-by-column left to right (see
         # build_increment_triangle/_increments_from_cumulative), so truncating to this group's
@@ -221,8 +275,25 @@ class NHSNNowcaster(Nowcaster):
         if np.nansum(matrix) == 0:
             return
 
-        own_pmf = estimate_delay(matrix)
-        pmf = self._shrink_toward_pooled(own_pmf, matrix, pooled_pmf)
+        # sibling_matrix (if usable) feeds ONLY the delay-PMF *shape* estimate below, via
+        # estimate_delay_pooled (fills each triangle independently before combining -- see its
+        # docstring for why naively stacking-then-filling corrupts the sibling's real values).
+        # apply_delay always fills in actual values using `matrix` (this disease's own data)
+        # alone, never the sibling's.
+        sibling_matrix = None
+        if sibling_wide_matrix is not None:
+            candidate = sibling_wide_matrix[:, : max_delay + 1]
+            candidate = candidate[~np.isnan(candidate).all(axis=1)]
+            if candidate.shape[0] > 0 and np.nansum(candidate) > 0:
+                sibling_matrix = candidate
+
+        if sibling_matrix is not None:
+            own_pmf = estimate_delay_pooled([matrix, sibling_matrix])
+            own_fit_volume_matrix = np.vstack([matrix, sibling_matrix])
+        else:
+            own_pmf = estimate_delay(matrix)
+            own_fit_volume_matrix = matrix
+        pmf = self._shrink_toward_pooled(own_pmf, own_fit_volume_matrix, pooled_pmf)
         filled = apply_delay(matrix, pmf)
         nowcasted_totals = filled.sum(axis=1)
 

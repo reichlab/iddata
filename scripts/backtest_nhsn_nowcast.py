@@ -37,6 +37,16 @@ backtest dates but blow up on 2025-02-08/02-15 -- MORE severely than under the o
 fit). That's the OTHER root cause (time-varying completion near a peak, not location noise),
 which shrinkage does not address at all.
 
+A third v2 attempt (`NowcastConfig.pool_sibling_disease`) pools flu+COVID data per location into
+the delay-PMF *shape* estimate, motivated by a strong empirical correlation (0.83) between flu
+and COVID completion percentages within the same location/week -- but the practical effect on
+backtest error is small: with the default pmf_shrinkage_k=10000, enabling it moves total error
+from 54.57 to 54.48 (well under 1%); isolated from shrinkage (pmf_shrinkage_k=0), it's a bit more
+visible but still modest (58.33 -> 57.49, ~1.4%). See that config field's docstring for why (short
+answer: COVID's volume is much smaller than flu's, so it contributes little to the combined
+ratio, and the dominant remaining error -- time-varying completion near a peak -- isn't a
+data-volume problem).
+
 Nowcasting remains implemented and opt-in (off by default everywhere) but is NOT recommended for
 production use pending a v2 that addresses time-varying completion near a peak. Re-run this
 script after any future v2 change to check whether it actually improves on these numbers first.
@@ -46,6 +56,7 @@ Usage
     uv run python scripts/backtest_nhsn_nowcast.py
     uv run python scripts/backtest_nhsn_nowcast.py --max-delay-weeks 2
     uv run python scripts/backtest_nhsn_nowcast.py --pmf-shrinkage-k 0
+    uv run python scripts/backtest_nhsn_nowcast.py --pool-sibling-disease
 """
 
 from __future__ import annotations
@@ -134,14 +145,18 @@ def main():
                          help="Override max_delay_weeks (default: look up the calibrated NHSN_MAX_DELAY_WEEKS constant).")
     parser.add_argument("--pmf-shrinkage-k", type=float, default=10_000.0,
                          help="NowcastConfig.pmf_shrinkage_k -- pass 0 to disable shrinkage (pure per-location PMF fit).")
+    parser.add_argument("--pool-sibling-disease", action="store_true",
+                         help="NowcastConfig.pool_sibling_disease -- pool flu+COVID data per location into the "
+                              "own-fit delay-PMF (see that config field's docstring for the empirical basis).")
     parser.add_argument("--disease", type=str, default="flu", choices=["flu", "covid"])
     args = parser.parse_args()
 
     disease = Disease.FLU if args.disease == "flu" else Disease.COVID
     nowcast_config = NowcastConfig(
-        min_vintages=8, max_delay_weeks=args.max_delay_weeks, pmf_shrinkage_k=args.pmf_shrinkage_k
+        min_vintages=8, max_delay_weeks=args.max_delay_weeks, pmf_shrinkage_k=args.pmf_shrinkage_k,
+        pool_sibling_disease=args.pool_sibling_disease,
     )
-    print(f"pmf_shrinkage_k={args.pmf_shrinkage_k}")
+    print(f"pmf_shrinkage_k={args.pmf_shrinkage_k}, pool_sibling_disease={args.pool_sibling_disease}")
 
     results = []
     for as_of in _BACKTEST_AS_OF_DATES:

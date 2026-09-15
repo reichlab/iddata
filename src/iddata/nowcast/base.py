@@ -60,6 +60,28 @@ class NowcastConfig:
         that shrinkage doesn't address). Treat the default as a reasonable starting point, not a
         finely-tuned value; the near-flatness across a 25x range of k suggests this parameter
         isn't the lever that matters most here.
+    pool_sibling_disease : bool
+        If True, each (location, agg_level) group's "own" delay-PMF fit (before shrinkage
+        toward the pooled-across-locations fit, above) is computed from a triangle stacking
+        BOTH flu and COVID data for that location, not just the disease being corrected. Only
+        used by `NHSNNowcaster`, and only between flu/COVID (the only two diseases the current
+        NHSN source supports). Motivated by an empirical check finding flu and COVID completion
+        percentages strongly correlated within the same location and week (pooled correlation
+        0.83 across 6 locations; NJ and PA even show the same anomalous dips on the same dates
+        for both diseases), consistent with both diseases sharing the same underlying hospital
+        reporting-pipeline timeliness. Correcting a disease's actual values still only ever uses
+        that disease's own matrix (`apply_delay`) -- pooling only feeds the delay-PMF *shape*
+        estimate, never substitutes one disease's raw counts for another's.
+
+        Despite the strong completion-percentage correlation, backtesting found only a small
+        practical benefit: with the default `pmf_shrinkage_k=10,000`, enabling this changes total
+        backtest error by well under 1% (54.57 -> 54.48); isolated from shrinkage entirely
+        (`pmf_shrinkage_k=0`), it's a bit more visible but still modest (58.33 -> 57.49, ~1.4%).
+        Likely explanation: COVID's case volume is only ~30-45% of flu's in the locations
+        checked, so it contributes proportionally little to the combined chain-ladder ratio, and
+        the dominant remaining error source (time-varying completion near a seasonal peak) is a
+        systematic bias that more data volume doesn't fix. Defaults to False given the marginal
+        benefit relative to the added cost (a second disease's worth of vintage fetches).
     """
 
     max_delay_weeks: int | None = None
@@ -68,6 +90,7 @@ class NowcastConfig:
     on_insufficient_data: str = "passthrough"
     sources: tuple[SourceType, ...] = (SourceType.NHSN,)
     pmf_shrinkage_k: float = 10_000.0
+    pool_sibling_disease: bool = False
 
 
     def __post_init__(self):

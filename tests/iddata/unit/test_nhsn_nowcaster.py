@@ -13,7 +13,7 @@ import pytest
 from iddata.enums import Disease
 from iddata.nowcast import nhsn
 from iddata.nowcast.base import NowcastConfig
-from iddata.nowcast.delay_model import estimate_delay, estimate_delay_pooled
+from iddata.nowcast.delay_model import apply_delay, estimate_delay, estimate_delay_pooled
 from iddata.nowcast.nhsn import NHSNNowcaster
 from iddata.nowcast.vintage_cache import VintageCache
 
@@ -93,7 +93,8 @@ class TestCorrectDispatchesPerLocationMaxDelay:
 
         recorded_calls = []
 
-        def _fake_correct_group(self, result, wide_matrix, wide_ref_dates, location, agg_level, max_delay, pooled_pmf):
+        def _fake_correct_group(self, result, wide_matrix, wide_ref_dates, location, agg_level, max_delay,
+                                 pooled_pmf, sibling_wide_matrix=None):
             recorded_calls.append((location, agg_level, max_delay, wide_matrix.shape[1]))
 
         monkeypatch.setattr(NHSNNowcaster, "_correct_group", _fake_correct_group)
@@ -154,6 +155,9 @@ class TestFitPooledPmf:
 
         expected = estimate_delay_pooled([group_a, group_b])
         np.testing.assert_allclose(result, expected)
+        # group_b's real, observed delay-1 values (5.0, 40.0) must survive into the pooled fit,
+        # not get discarded/replaced -- confirm indirectly via the filled matrix estimate_delay_
+        # pooled itself relies on (see that function's own docstring/tests for the direct check).
         naive_and_wrong = estimate_delay(np.vstack([group_a, group_b]))
         assert not np.allclose(result, naive_and_wrong), (
             "pooled result matches the naive (buggy) np.vstack + estimate_delay computation -- "
@@ -251,3 +255,117 @@ class TestShrinkTowardPooled:
 
         truncated_renormalized = np.array([0.5, 0.3]) / 0.8
         np.testing.assert_allclose(result, 0.5 * own_pmf + 0.5 * truncated_renormalized)
+
+
+class TestFetchSiblingWideTriangles:
+    def test_returns_none_when_pool_sibling_disease_off(self, monkeypatch):
+        nowcaster = NHSNNowcaster(NowcastConfig(pool_sibling_disease=False))
+        monkeypatch.setattr(VintageCache, "get_many", lambda self, source, as_of_dates: (_ for _ in ()).throw(
+            AssertionError("should never fetch when pool_sibling_disease is off")))
+
+        result = nowcaster._fetch_sibling_wide_triangles(
+            _make_source(Disease.FLU), datetime.date(2026, 1, 3), [], 5, 15, {("34", "state"): 5}
+        )
+
+        assert result is None
+
+
+    def test_returns_none_when_disease_has_no_sibling(self):
+        nowcaster = NHSNNowcaster(NowcastConfig(pool_sibling_disease=True))
+
+        result = nowcaster._fetch_sibling_wide_triangles(
+            _make_source(Disease.RSV), datetime.date(2026, 1, 3), [], 5, 15, {("34", "state"): 5}
+        )
+
+        assert result is None
+
+
+    def test_fetches_covid_vintages_for_a_flu_source(self, monkeypatch):
+        nowcaster = NHSNNowcaster(NowcastConfig(pool_sibling_disease=True))
+
+        captured = {}
+
+        def _fake_get_many(self, source, as_of_dates):
+            captured["disease"] = source.disease
+            captured["as_of_dates"] = as_of_dates
+            return {}
+
+        monkeypatch.setattr(VintageCache, "get_many", _fake_get_many)
+        monkeypatch.setattr(VintageCache, "n_distinct_vintages", lambda self, as_of_dates: len(as_of_dates))
+
+        as_of_dates = [datetime.date(2026, 1, 3), datetime.date(2026, 1, 10)]
+        result = nowcaster._fetch_sibling_wide_triangles(
+            _make_source(Disease.FLU), datetime.date(2026, 1, 10), as_of_dates, 5, 15, {("34", "state"): 5}
+        )
+
+        assert captured["disease"] == Disease.COVID  # FLU's sibling
+        assert captured["as_of_dates"] == as_of_dates
+        assert ("34", "state") in result
+
+
+class TestCorrectGroupSiblingPooling:
+    def _make_result_df(self, wk_end_dates):
+        return pd.DataFrame({
+            "source": ["nhsn"] * len(wk_end_dates), "agg_level": ["state"] * len(wk_end_dates),
+            "location": ["34"] * len(wk_end_dates), "season": ["2025/26"] * len(wk_end_dates),
+            "season_week": [10] * len(wk_end_dates), "wk_end_date": [pd.Timestamp(d) for d in wk_end_dates],
+            "inc": [0.0] * len(wk_end_dates),
+        })
+
+
+    def test_pools_sibling_matrix_into_own_fit_but_not_into_apply_delay(self):
+        nowcaster = NHSNNowcaster(NowcastConfig())
+        own_matrix = np.array([[10.0, 2.0], [8.0, 3.0], [5.0, np.nan]])
+        # Realistic sibling shape: same 3 reference weeks (same structural missingness -- the
+        # sibling disease shares the same vintage cadence/publication lag), but its own,
+        # genuinely different case counts/ratios.
+        sibling_matrix = np.array([[4.0, 1.0], [3.0, 1.5], [2.0, np.nan]])
+        wk_end_dates = [datetime.date(2026, 1, d) for d in (3, 10, 17)]
+        result = self._make_result_df(wk_end_dates)
+
+        nowcaster._correct_group(
+            result, own_matrix, wk_end_dates, "34", "state", max_delay=1,
+            pooled_pmf=None, sibling_wide_matrix=sibling_matrix,
+        )
+
+        # The PMF should be fit by pooling own_matrix with sibling_matrix (each filled
+        # independently first -- see estimate_delay_pooled's docstring for why naively stacking
+        # raw triangles and filling the stack directly would corrupt the sibling's real values)...
+        expected_pmf = estimate_delay_pooled([own_matrix, sibling_matrix])
+        # ...but the actual correction must still only ever use own_matrix's values.
+        expected_filled = apply_delay(own_matrix, expected_pmf)
+        expected_total = expected_filled.sum(axis=1)[2]
+
+        corrected_row = result.loc[result["wk_end_date"] == pd.Timestamp(wk_end_dates[2]), "inc"]
+        assert corrected_row.iloc[0] == pytest.approx(expected_total)
+
+        # A sanity check that pooling the sibling in actually changed the result vs. not pooling.
+        result_no_sibling = self._make_result_df(wk_end_dates)
+        nowcaster._correct_group(
+            result_no_sibling, own_matrix, wk_end_dates, "34", "state", max_delay=1,
+            pooled_pmf=None, sibling_wide_matrix=None,
+        )
+        corrected_row_no_sibling = result_no_sibling.loc[
+            result_no_sibling["wk_end_date"] == pd.Timestamp(wk_end_dates[2]), "inc"
+        ]
+        assert corrected_row.iloc[0] != pytest.approx(corrected_row_no_sibling.iloc[0])
+
+
+    def test_falls_back_to_own_matrix_when_sibling_has_no_observations(self):
+        nowcaster = NHSNNowcaster(NowcastConfig())
+        own_matrix = np.array([[10.0, 2.0], [8.0, 3.0], [5.0, np.nan]])
+        sibling_matrix = np.full((2, 2), np.nan)  # sibling has zero observations for this location
+        wk_end_dates = [datetime.date(2026, 1, d) for d in (3, 10, 17)]
+
+        with_sibling = self._make_result_df(wk_end_dates)
+        nowcaster._correct_group(
+            with_sibling, own_matrix, wk_end_dates, "34", "state", max_delay=1,
+            pooled_pmf=None, sibling_wide_matrix=sibling_matrix,
+        )
+        without_sibling = self._make_result_df(wk_end_dates)
+        nowcaster._correct_group(
+            without_sibling, own_matrix, wk_end_dates, "34", "state", max_delay=1,
+            pooled_pmf=None, sibling_wide_matrix=None,
+        )
+
+        pd.testing.assert_frame_equal(with_sibling, without_sibling)
