@@ -103,6 +103,38 @@ def estimate_delay(reporting_triangle: np.ndarray, n: int | None = None) -> np.n
     return pmf
 
 
+def estimate_delay_pooled(triangles: list[np.ndarray]) -> np.ndarray:
+    """
+    Fit ONE delay-PMF jointly from multiple independent reporting triangles (e.g. different
+    locations, or -- per this project's cross-disease pooling -- flu and COVID sharing the same
+    reporting pipeline for one location), each with its own trailing incomplete rows.
+
+    NOT a port of anything in `baselinenowcast`, which only ever fits one series at a time -- this
+    project-specific extension exists because naively `np.vstack`-ing several independent
+    triangles and calling `estimate_delay` on the result is WRONG: `_chainladder_fill_triangle`
+    assumes its input is a single monotonic reporting triangle, where a column's missing cells
+    form one contiguous block running to the very last row. That assumption holds for one
+    series' own triangle (more recent reference weeks are never MORE complete than older ones),
+    but breaks the moment a second triangle's rows are appended below the first, since it finds
+    the FIRST missing row across the WHOLE stack and overwrites every row from there to the very
+    end of the stack in that column -- silently discarding the second (and any later) triangle's
+    genuinely-observed values in the rows straddling that column's missing/present boundary, not
+    just the cells that were actually NaN. Confirmed directly: stacking a second, fully-observed
+    triangle after a first with a trailing NaN caused `_chainladder_fill_triangle` to replace the
+    second triangle's real values (e.g. 5.0, 40.0) with unrelated computed placeholders (27.8,
+    22.2) that were never seen in its actual data.
+
+    The fix: fill each triangle independently first (using ONLY its own, correctly-scoped
+    chain-ladder ratios -- exactly how `estimate_delay` already handles a single triangle
+    correctly), so every input triangle is fully complete (no remaining NaN) before combining.
+    Stacking already-filled triangles and summing is then just `_calculate_pmf`'s
+    colsum-over-total formula -- no further filling step, and no way for one triangle's
+    completeness pattern to bleed into another's.
+    """
+    filled = [_chainladder_fill_triangle(t) for t in triangles]
+    return _calculate_pmf(np.vstack(filled))
+
+
 def _chainladder_fill_triangle(rep_tri_mat: np.ndarray) -> np.ndarray:
     """
     Fill in missing values in the reporting triangle using the iterative "chainladder" method.

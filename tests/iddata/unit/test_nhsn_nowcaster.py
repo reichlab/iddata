@@ -13,9 +13,8 @@ import pytest
 from iddata.enums import Disease
 from iddata.nowcast import nhsn
 from iddata.nowcast.base import NowcastConfig
-from iddata.nowcast.delay_model import estimate_delay
+from iddata.nowcast.delay_model import estimate_delay, estimate_delay_pooled
 from iddata.nowcast.nhsn import NHSNNowcaster
-from iddata.nowcast.triangle import stack_triangles
 from iddata.nowcast.vintage_cache import VintageCache
 
 
@@ -121,7 +120,7 @@ class TestCorrectDispatchesPerLocationMaxDelay:
 
 
 class TestFitPooledPmf:
-    def test_pools_clean_groups_matching_direct_stack_triangles_computation(self):
+    def test_pools_clean_groups_matching_direct_estimate_delay_pooled_computation(self):
         nowcaster = NHSNNowcaster(NowcastConfig())
         m1 = np.array([[10.0, 2.0], [8.0, 3.0], [12.0, 4.0]])
         m2 = np.array([[5.0, 1.0], [6.0, 2.0], [7.0, 1.0]])
@@ -129,8 +128,37 @@ class TestFitPooledPmf:
 
         result = nowcaster._fit_pooled_pmf(wide_triangles)
 
-        expected = estimate_delay(stack_triangles([m1, m2]))
+        expected = estimate_delay_pooled([m1, m2])
         np.testing.assert_allclose(result, expected)
+
+
+    def test_pools_multiple_groups_each_with_their_own_trailing_incomplete_row(self):
+        """
+        Regression test for a real bug: naively `np.vstack`-ing several groups' triangles (each
+        with its own trailing incomplete row, the realistic/common shape -- see
+        estimate_delay_pooled's docstring) and calling `estimate_delay` directly on the stack
+        corrupts every group AFTER the first, silently overwriting its genuinely-observed rows
+        with unrelated computed placeholders. _fit_pooled_pmf must fill each group independently
+        (via estimate_delay_pooled) before combining, so a second group's real observed values
+        are never discarded just because an earlier group also has a trailing NaN.
+        """
+        nowcaster = NHSNNowcaster(NowcastConfig())
+        # group_b's ratios are deliberately very different from group_a's, so if group_b's real
+        # values got overwritten with group_a-derived placeholders, the pooled result would be
+        # detectably wrong (this is the exact scenario that reproduced the bug).
+        group_a = np.array([[10.0, 2.0], [8.0, 3.0], [5.0, np.nan]])
+        group_b = np.array([[100.0, 5.0], [80.0, 40.0], [50.0, np.nan]])
+        wide_triangles = {("A", "state"): (group_a, []), ("B", "state"): (group_b, [])}
+
+        result = nowcaster._fit_pooled_pmf(wide_triangles)
+
+        expected = estimate_delay_pooled([group_a, group_b])
+        np.testing.assert_allclose(result, expected)
+        naive_and_wrong = estimate_delay(np.vstack([group_a, group_b]))
+        assert not np.allclose(result, naive_and_wrong), (
+            "pooled result matches the naive (buggy) np.vstack + estimate_delay computation -- "
+            "the fix isn't actually being used"
+        )
 
 
     def test_skips_group_with_incomplete_oldest_row(self):

@@ -17,21 +17,29 @@ signal gained back, even for locations whose own fitted max_delay matched indepe
 ground-truth evidence).
 
 A follow-up v2 attempt (shrinking each location's own fitted delay-PMF toward a live pooled PMF,
-weighted by data volume -- `NowcastConfig.pmf_shrinkage_k`, see its docstring) roughly HALVED the
-damage from pure per-location fitting but did NOT flip the sign. Sweeping pmf_shrinkage_k on the
-same 30 combinations (raw=26.68 throughout): k=0 (no shrinkage) -> corrected=58.33; k=2000 ->
-35.22; k=10000 (the default) -> 34.76; k=50000 -> 34.67 (diminishing returns above ~10000).
-Shrinkage is a real, confirmed fix for the small-sample chain-ladder noise problem -- but even
-the fully-pooled limit still leaves correction worse than raw, because the surviving error
-concentrates specifically on dates near the 2024/25 season's sharp Feb-2025 peak (e.g. NJ and PA
-are close to raw on 3 of 5 backtest dates but blow up specifically on 2025-02-08/02-15). That's
-the OTHER root cause (time-varying completion near a peak, not location noise), which shrinkage
-does not address at all.
+weighted by data volume -- `NowcastConfig.pmf_shrinkage_k`, see its docstring) was ALSO found to
+depend on a real, separate bug: the pooled PMF itself (`NHSNNowcaster._fit_pooled_pmf`) was being
+computed by naively `np.vstack`-ing every location's triangle and calling `estimate_delay` on the
+result, which silently corrupts every location's data after the first with computed placeholders
+instead of their real observed values (see `iddata.nowcast.delay_model.estimate_delay_pooled`'s
+docstring for the mechanism and a concrete before/after repro). Under that bug, shrinkage looked
+like it roughly halved the per-location-noise damage (k=0 -> corrected=58.33; k=10000 ->
+34.76). Once the pooled fit was fixed to fill each location's triangle independently before
+combining (so real observed values are never discarded), shrinkage barely helps at all: sweeping
+pmf_shrinkage_k on the same 30 combinations (raw=26.68 throughout) now gives k=0 -> 58.33
+(unaffected, as expected -- k=0 never uses the pooled fit); k=2000 -> 54.49; k=10000 (the
+default) -> 54.57; k=50000 -> 54.59. The near-total flatness across a 25x range of k is itself
+informative: this parameter isn't the lever that matters. Shrinkage is a real (if now much more
+modest, ~6%) improvement over pure per-location fitting, and still does NOT flip the sign --
+correction stays worse than raw at every k, because the surviving error concentrates specifically
+on dates near the 2024/25 season's sharp Feb-2025 peak (e.g. NJ and PA are close to raw on 3 of 5
+backtest dates but blow up on 2025-02-08/02-15 -- MORE severely than under the old, buggy pooled
+fit). That's the OTHER root cause (time-varying completion near a peak, not location noise),
+which shrinkage does not address at all.
 
 Nowcasting remains implemented and opt-in (off by default everywhere) but is NOT recommended for
-production use pending a v2 that addresses time-varying completion near a peak (shrinkage already
-addresses the location-noise half of the problem). Re-run this script after any future v2 change
-to check whether it actually improves on these numbers first.
+production use pending a v2 that addresses time-varying completion near a peak. Re-run this
+script after any future v2 change to check whether it actually improves on these numbers first.
 
 Usage
 -----

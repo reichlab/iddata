@@ -49,13 +49,17 @@ class NowcastConfig:
         A pure per-location fit (`pmf_shrinkage_k=0`) was tried and made backtest error more than
         double vs. leaving the data uncorrected, even for locations whose own fit was otherwise
         accurate -- a small per-location training window makes the chain-ladder ratio estimator
-        too noisy on its own. Shrinking toward the pooled fit roughly halved that damage (a
-        real, confirmed improvement over pure per-location fitting) but did NOT flip the sign:
-        even the fully-pooled limit still left correction worse than raw, because the surviving
-        error concentrates specifically on dates near a sharp seasonal peak (a different failure
-        mode -- time-varying completion, not location noise -- that shrinkage doesn't address).
-        Diminishing returns set in quickly above ~10,000 in the one backtest run so far; treat
-        the default as a reasonable starting point, not a finely-tuned value.
+        too noisy on its own. Shrinking toward the pooled fit only helps modestly (~6% reduction
+        in the one backtest run so far, after a since-fixed bug in the pooled fit itself was
+        corrected -- see `estimate_delay_pooled`'s docstring; an earlier, buggy pooled fit had
+        made shrinkage look like it roughly halved the damage, which did not hold up once the
+        pooled PMF was computed correctly) and does NOT flip the sign: correction remains worse
+        than raw at every `pmf_shrinkage_k` tried (2,000 / 10,000 / 50,000 all land within ~0.1 of
+        each other), because the surviving error concentrates specifically on dates near a sharp
+        seasonal peak (a different failure mode -- time-varying completion, not location noise --
+        that shrinkage doesn't address). Treat the default as a reasonable starting point, not a
+        finely-tuned value; the near-flatness across a 25x range of k suggests this parameter
+        isn't the lever that matters most here.
     """
 
     max_delay_weeks: int | None = None

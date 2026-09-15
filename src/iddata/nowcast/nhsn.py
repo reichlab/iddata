@@ -12,8 +12,8 @@ import pandas as pd
 from iddata.constants import NHSN_MAX_DELAY_WEEKS, NHSN_MAX_DELAY_WEEKS_BY_LOCATION, NHSN_SOURCE_CUTOVER_DATE
 from iddata.enums import SourceType
 from iddata.nowcast.base import Nowcaster, register_nowcaster
-from iddata.nowcast.delay_model import apply_delay, estimate_delay
-from iddata.nowcast.triangle import build_increment_triangle, stack_triangles, weekly_as_of_dates
+from iddata.nowcast.delay_model import apply_delay, estimate_delay, estimate_delay_pooled
+from iddata.nowcast.triangle import build_increment_triangle, weekly_as_of_dates
 from iddata.nowcast.vintage_cache import VintageCache
 from iddata.sources.base import DataSource
 
@@ -153,7 +153,7 @@ class NHSNNowcaster(Nowcaster):
             poolable.append(trimmed)
         if not poolable:
             return None
-        return estimate_delay(stack_triangles(poolable))
+        return estimate_delay_pooled(poolable)
 
 
     def _shrink_toward_pooled(self, own_pmf: np.ndarray, matrix: np.ndarray, pooled_pmf: np.ndarray | None) -> np.ndarray:
