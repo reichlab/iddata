@@ -40,7 +40,7 @@ jobs:
 
       - name: install R packages
         run: |
-          Rscript -e "install.packages(c('remotes', 'lubridate', 'arrow'));
+          Rscript -e "install.packages(c('remotes', 'lubridate'));
                       remotes::install_github('Chicago/RSocrata')"
 
       - name: Get file name
@@ -53,12 +53,8 @@ jobs:
         # some columns removed
         # remove timezone letters from week_end
         # add back leading zeroes to fips codes to make sure all are length 5
-        run: Rscript -e "if (lubridate::wday(Sys.Date()) == 4 | '$PRELIMINARY' == 'true') {
-                           nssp_data <- arrow::read_parquet('https://raw.githubusercontent.com/CDCgov/covid19-forecast-hub/refs/heads/main/auxiliary-data/nssp-raw-data/latest.parquet');
-                         } else {
-                           nssp_data <- RSocrata::read.socrata('https://data.cdc.gov/resource/rdmq-nq56.csv');
-                           nssp_data[['fips']] <- sprintf('%05d', nssp_data[['fips']]);
-                         };
+        run: Rscript -e "nssp_data <- RSocrata::read.socrata('https://data.cdc.gov/resource/rdmq-nq56.csv');
+                         nssp_data[['fips']] <- sprintf('%05d', nssp_data[['fips']]);
                          nssp_data <- nssp_data[c('week_end', 'geography', 'county', 'fips', 'hsa_nci_id', 'percent_visits_covid', 'percent_visits_influenza', 'percent_visits_rsv')];
                          nssp_data[['week_end']] <- substr(nssp_data[['week_end']], 1, 10);
                          max_date <- lubridate::ymd(max(nssp_data[['week_end']]));
