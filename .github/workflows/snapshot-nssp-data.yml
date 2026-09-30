@@ -4,12 +4,6 @@ on:
   schedule:
     - cron: "45 17 * * 3,5" # every Wednesday and Friday at 5:45PM UTC == 12:45PM EST
   workflow_dispatch:
-    inputs:
-      preliminary:
-        description: "Snapshot preliminary data from GitHub?"
-        type: boolean
-        required: false
-        default: false
 
 env:
   # Reich lab AWS account number
@@ -49,7 +43,6 @@ jobs:
       - name: Snapshot NSSP data
         # download and process file
         # preliminary data on Wednesday; official data otherwise
-        # (with option to override for preliminary data on manual runs)
         # some columns removed
         # remove timezone letters from week_end
         # add back leading zeroes to fips codes to make sure all are length 5
@@ -62,7 +55,6 @@ jobs:
                          write.csv(nssp_data, file = '$FILE_NAME', row.names = FALSE)"
         env:
           FILE_NAME: ${{ env.FILE_NAME }}
-          PRELIMINARY: ${{ inputs.preliminary }}
 
       - name: Configure AWS credentials
         # request credentials to assume the hub's AWS role via OpenID Connect
