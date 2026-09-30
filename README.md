@@ -11,6 +11,18 @@ To install this package via pip:
 pip install git+https://github.com/reichlab/iddata.git
 ```
 
+## Data sources
+
+iddata loads data from these surveillance sources: NHSN hospital admissions, NSSP emergency department visits, ILINet,
+and FluSurv-NET. It also loads supporting population and location data.
+
+The raw files are read at load time from the public `infectious-disease-data` S3 bucket, so no AWS credentials are
+needed. NHSN and NSSP are snapshotted on a schedule by GitHub Actions workflows in this repository
+([`.github/workflows/`](.github/workflows)). This lets data be loaded as it was on a given `as_of` date.
+
+See [docs/data-sources.md](docs/data-sources.md) for the bucket layout, what each source reads, how versioned snapshots
+and `as_of` work, and how the snapshot workflows run.
+
 ## Setup for local development
 
 The steps below are for setting up a local development environment. This process entails more than just installing the package,
