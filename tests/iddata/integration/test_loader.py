@@ -22,13 +22,22 @@ _DEFAULT_AS_OF = datetime.date.fromisoformat("2023-12-30")
 _NSSP_AS_OF = datetime.date.fromisoformat("2025-09-20")
 
 
+def _smh_test_source(**kwargs) -> SMHDataSource:
+    """
+    An SMHDataSource trimmed to one model and two trajectories. Loading every model for rounds 4-6 peaks at ~17 GB, more
+    than a GitHub-hosted runner has. In round 4 these output_type_ids cover all 52 locations (including US); in rounds
+    5+ output_type_ids are per-location, so they return only a few rows.
+    """
+    return SMHDataSource(model_id=["MOBS_NEU-GLEAM_FLU"], output_type_id=["1", "2"], **kwargs)
+
+
 @pytest.mark.parametrize("sources, expected_source_values", [
     ([NHSNDataSource()], {"nhsn"}),
     ([ILINetDataSource()], {"ilinet"}),
     ([FluSurvNetDataSource()], {"flusurvnet"}),
     ([NSSPDataSource()], {"nssp"}),
-    ([SMHDataSource()], {"smh"}),
-    ([NHSNDataSource(), ILINetDataSource(), FluSurvNetDataSource(), NSSPDataSource(), SMHDataSource()],
+    ([_smh_test_source()], {"smh"}),
+    ([NHSNDataSource(), ILINetDataSource(), FluSurvNetDataSource(), NSSPDataSource(), _smh_test_source()],
      {"nhsn", "ilinet", "flusurvnet", "nssp", "smh"}),
 ])
 def test_load_data_sources(sources, expected_source_values):
@@ -60,9 +69,8 @@ def test_nssp_columns():
 
 
 def test_smh_wk_end_date_is_saturday():
-    # rates=False: this test only checks date alignment, not rate conversion, so it doesn't
-    # need to supply population ancillary data.
-    df = SMHDataSource(rates=False).load(as_of=_DEFAULT_AS_OF)
+    # rates=False: this test only checks date alignment, so it skips the population load needed for rates
+    df = _smh_test_source(rates=False).load(as_of=_DEFAULT_AS_OF)
     assert (df["wk_end_date"].dt.dayofweek == 5).all()
 
 
@@ -70,11 +78,14 @@ def test_smh_wk_end_date_is_saturday():
 def test_smh_rates_population_source(ancillary, expect_pop):
     # rates=True converts inc with population whether or not it was requested via ancillary,
     # but pop/log_pop are only returned when requested.
-    counts = SMHDataSource(rates=False).load(as_of=_DEFAULT_AS_OF)
-    rates = SMHDataSource(rates=True).load(as_of=_DEFAULT_AS_OF, ancillary=ancillary)
+    counts = _smh_test_source(rates=False).load(as_of=_DEFAULT_AS_OF)
+    rates = _smh_test_source(rates=True).load(as_of=_DEFAULT_AS_OF, ancillary=ancillary)
 
     assert ("pop" in rates.columns) == expect_pop
     assert ("log_pop" in rates.columns) == expect_pop
+    # every location, including the national row, must get a population to convert with
+    assert (rates["agg_level"] == "national").any()
+    assert rates["inc"].notna().all()
     # every location has pop > 100k, so converting to rates per 100k must shrink inc
     assert rates["inc"].sum() < counts["inc"].sum()
 
