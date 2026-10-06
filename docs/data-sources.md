@@ -135,6 +135,19 @@ The returned data differs from the surveillance sources in a few ways:
   that data is used, and `pop`/`log_pop` are included in the output. Otherwise `SMHDataSource` loads `PopulationData`
   only for the conversion and leaves those columns out.
 
+> **Memory use:** loading every model for every round needs a lot of memory. Measured with the default `rates=True`
+> and no filters:
+>
+> | `as_of` | Rounds | Rows | Peak memory |
+> |---|---|---|---|
+> | 2023-12-30 | 4 | ~6.6 million | ~2.5 GB |
+> | 2025-09-20 | 4, 5, 6 | ~58 million | ~17 GB |
+>
+> That is more than many laptops and GitHub-hosted runners have. Pass `model_id` and/or `output_type_id` to
+> `SMHDataSource` to keep only the rows you need. The filters are applied as the parquet files are read, so rows that
+> don't match never reach the DataFrame. The integration tests use `model_id=["MOBS_NEU-GLEAM_FLU"]` with
+> `output_type_id=["1", "2"]` for this reason.
+
 ## Adding a new data source
 
 1. Get the raw data into the bucket under a new `data-raw/<source>/` prefix. If the data is revised over time, add a
