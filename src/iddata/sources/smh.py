@@ -6,6 +6,7 @@ import pandas as pd
 
 from iddata import utils
 from iddata.ancillary.base import AncillaryData
+from iddata.ancillary.population import PopulationData
 from iddata.constants import SMH_DATA_PARQUET_URL
 from iddata.enums import AggLevel, Disease, SourceType
 from iddata.sources.base import DataSource
@@ -33,6 +34,9 @@ class SMHDataSource(DataSource):
         Load SMH weekly hospitalization trajectory predictions. Only supports as_of >= 2022-08-14. 
         If `model_id`/`output_type_id` were set on this instance, they're applied as parquet
         predicate pushdown filters so only the matching rows are read.
+
+        If `rates` is True, inc is converted to a rate per 100k. Population comes from `ancillary` when it provides
+        pop; otherwise PopulationData is loaded just for the conversion and pop/log_pop are not returned.
         """
         if isinstance(as_of, str):
             as_of = datetime.date.fromisoformat(as_of)
@@ -95,21 +99,14 @@ class SMHDataSource(DataSource):
         dat = utils.add_season_columns(dat)
         dat["agg_level"] = np.where(dat["location"] == "US", "national", "state")
 
-        # merge with populations
-        if ancillary:
-            for anc in ancillary:
-                anc_df = anc.load(as_of=as_of)
-                join_keys = ["location", "season"] if "season" in anc_df.columns else ["location"]
-                if "agg_level" in anc_df.columns and "agg_level" in dat.columns:
-                    join_keys.append("agg_level")
-                dat = dat.merge(anc_df, how="left", on=join_keys)
+        for anc in ancillary or []:
+            dat = _merge_ancillary(dat, anc, as_of)
 
+        # pop/log_pop are only returned if the caller asked for them via `ancillary`
+        include_pop = "pop" in dat.columns
         if self.rates:
-            if "pop" not in dat.columns:
-                raise ValueError(
-                    "SMHDataSource(rates=True) requires population data to convert inc to a rate; "
-                    "pass ancillary=[PopulationData()] to load() (or construct with rates=False)."
-                )
+            if not include_pop:
+                dat = _merge_ancillary(dat, PopulationData(), as_of)
             dat = dat.assign(inc=lambda x: x["inc"] / x["pop"] * 100000)
 
         dat["location"] = "syn-" + dat["location"]
@@ -119,7 +116,15 @@ class SMHDataSource(DataSource):
         dat["source"] = SourceType.SMH.value + "-" + dat["model_id"]
 
         cols = ["agg_level", "location", "season", "season_week", "wk_end_date", "inc", "source", "round"]
-        if "pop" in dat.columns:
+        if include_pop:
             cols += ["pop", "log_pop"]
         dat = dat[cols]
         return dat
+
+
+def _merge_ancillary(dat: pd.DataFrame, anc: AncillaryData, as_of: datetime.date) -> pd.DataFrame:
+    anc_df = anc.load(as_of=as_of)
+    join_keys = ["location", "season"] if "season" in anc_df.columns else ["location"]
+    if "agg_level" in anc_df.columns and "agg_level" in dat.columns:
+        join_keys.append("agg_level")
+    return dat.merge(anc_df, how="left", on=join_keys)

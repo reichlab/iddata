@@ -9,6 +9,7 @@ import datetime
 
 import pytest
 
+from iddata.ancillary.population import PopulationData
 from iddata.constants import PANDEMIC_SEASONS
 from iddata.loader import DiseaseDataLoader
 from iddata.sources.flusurvnet import FluSurvNetDataSource
@@ -65,9 +66,17 @@ def test_smh_wk_end_date_is_saturday():
     assert (df["wk_end_date"].dt.dayofweek == 5).all()
 
 
-def test_smh_rates_without_population_ancillary_raises():
-    with pytest.raises(ValueError, match="population data"):
-        SMHDataSource(rates=True).load(as_of=_DEFAULT_AS_OF)
+@pytest.mark.parametrize("ancillary, expect_pop", [(None, False), ([PopulationData()], True)])
+def test_smh_rates_population_source(ancillary, expect_pop):
+    # rates=True converts inc with population whether or not it was requested via ancillary,
+    # but pop/log_pop are only returned when requested.
+    counts = SMHDataSource(rates=False).load(as_of=_DEFAULT_AS_OF)
+    rates = SMHDataSource(rates=True).load(as_of=_DEFAULT_AS_OF, ancillary=ancillary)
+
+    assert ("pop" in rates.columns) == expect_pop
+    assert ("log_pop" in rates.columns) == expect_pop
+    # every location has pop > 100k, so converting to rates per 100k must shrink inc
+    assert rates["inc"].sum() < counts["inc"].sum()
 
 
 def test_nssp_locations():

@@ -154,22 +154,12 @@ class TestDiseaseDataLoaderMerge:
         assert df["pop"].notna().all()
 
 
-    def test_load_default_ancillary_merges_population(self):
+    @pytest.mark.parametrize("ancillary", [None, []])
+    def test_load_without_ancillary_skips_population_merge(self, ancillary):
         src = self._make_mock_source("nhsn")
         loader = DiseaseDataLoader()
 
-        df = loader.load(sources=[src], as_of=datetime.date(2024, 1, 6))
-
-        assert "pop" in df.columns
-        assert "log_pop" in df.columns
-        assert df["pop"].notna().all()
-
-
-    def test_load_empty_ancillary_skips_population_merge(self):
-        src = self._make_mock_source("nhsn")
-        loader = DiseaseDataLoader()
-
-        df = loader.load(sources=[src], as_of=datetime.date(2024, 1, 6), ancillary=[])
+        df = loader.load(sources=[src], as_of=datetime.date(2024, 1, 6), ancillary=ancillary)
 
         assert "pop" not in df.columns
         assert "log_pop" not in df.columns

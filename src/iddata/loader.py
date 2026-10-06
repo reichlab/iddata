@@ -5,7 +5,6 @@ import numpy as np
 import pandas as pd
 
 from iddata.ancillary.base import AncillaryData
-from iddata.ancillary.population import PopulationData
 from iddata.constants import PANDEMIC_SEASONS
 from iddata.enums import SourceType
 from iddata.sources.base import DataSource
@@ -32,13 +31,10 @@ class DiseaseDataLoader:
             Reference date passed to each source's load() method.
         ancillary : list[AncillaryData] | None
             Supplementary data merged into the result by location (left join).
-            Defaults to [PopulationData()] (adds pop and log_pop); pass an empty list to skip.
+            Typically [PopulationData()] for models that need pop and log_pop.
         drop_pandemic_seasons : bool
             If True (default), set inc to NaN for pandemic seasons across all sources.
         """
-        if ancillary is None:
-            ancillary = [PopulationData()]
-
         if not drop_pandemic_seasons and as_of < datetime.date(2024, 11, 15) and \
                 any(src.source_name == SourceType.NHSN for src in sources):
             warnings.warn(

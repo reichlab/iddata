@@ -10,12 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.1.0]
 
 ### Added
-- `SMHDataSource` data source for Flu Scenario Modeling Hub weekly hospitalization trajectories (rounds 4–6, selected by `as_of`), with optional `model_id`/`output_type_id` filters and a `rates` option that converts `inc` to rates per 100k using population ancillary data
+- `SMHDataSource` data source for Flu Scenario Modeling Hub weekly hospitalization trajectories (rounds 4–6, selected by `as_of`), with optional `model_id`/`output_type_id` filters and a `rates` option (default `True`) that converts `inc` to rates per 100k. Population comes from `ancillary` if provided, otherwise it is loaded internally just for the conversion
 - `SourceType.SMH` enum member
 - `pyarrow` dependency for reading SMH parquet files
 
 ### Changed
-- `DiseaseDataLoader.load()`: `ancillary` now defaults to `[PopulationData()]` when not given; pass `ancillary=[]` to skip the population merge
 - `DiseaseDataLoader.load()`: pandemic-season `NaN` masking is now applied after ancillary merges and SMH data are combined
 - `utils.add_season_columns()` computes season columns once per unique `wk_end_date` (faster on large frames) and `date_to_ew_str()` accepts date/timestamp values as well as ISO strings
 
