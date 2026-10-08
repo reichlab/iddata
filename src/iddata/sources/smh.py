@@ -5,10 +5,10 @@ import numpy as np
 import pandas as pd
 
 from iddata import utils
-from iddata.ancillary.base import AncillaryData
+from iddata.ancillary.base import AncillaryData, merge_ancillary
 from iddata.ancillary.population import PopulationData
 from iddata.constants import SMH_DATA_PARQUET_URL
-from iddata.enums import AggLevel, Disease, SourceType
+from iddata.enums import Disease, SourceType
 from iddata.sources.base import DataSource
 
 
@@ -16,12 +16,11 @@ class SMHDataSource(DataSource):
     source_name = SourceType.SMH
 
     def __init__(
-        self, disease: Disease = Disease.FLU, rates: bool = True, agg_level: AggLevel = AggLevel.STATE,
+        self, disease: Disease = Disease.FLU, rates: bool = True,
         model_id: list[str] | None = None, output_type_id: list[str] | None = None,
     ):
         self.disease = disease
         self.rates = rates
-        self.agg_level = agg_level
         self.model_id = model_id
         self.output_type_id = output_type_id
 
@@ -31,13 +30,16 @@ class SMHDataSource(DataSource):
         ancillary: list[AncillaryData] | None = None,
     ) -> pd.DataFrame:
         """
-        Load SMH weekly hospitalization trajectory predictions. Only supports as_of >= 2022-08-14. 
+        Load SMH weekly hospitalization trajectory predictions. Raises ValueError if as_of is None. Only supports
+        as_of >= 2022-08-14.
         If `model_id`/`output_type_id` were set on this instance, they're applied as parquet
         predicate pushdown filters so only the matching rows are read.
 
         If `rates` is True, inc is converted to a rate per 100k. Population comes from `ancillary` when it provides
         pop; otherwise PopulationData is loaded just for the conversion and pop/log_pop are not returned.
         """
+        if as_of is None:
+            raise ValueError("SMH requires as_of to be specified.")
         if isinstance(as_of, str):
             as_of = datetime.date.fromisoformat(as_of)
         if as_of < datetime.date.fromisoformat("2022-08-14"):
@@ -49,7 +51,7 @@ class SMHDataSource(DataSource):
         else:
             rounds = [4, 5, 6]
 
-        valid_diseases = (Disease.FLU)
+        valid_diseases = (Disease.FLU,)
         if self.disease not in valid_diseases:
             raise ValueError(f"SMH supports {valid_diseases}; got {self.disease}.")
 
@@ -78,6 +80,12 @@ class SMHDataSource(DataSource):
             round_frames.append(round_df)
         dat = pd.concat(round_frames, axis=0)
 
+        # these are concatenated into source/season below, where a null would fail with an unhelpful TypeError
+        id_cols = ["model_id", "scenario_id", "output_type_id"]
+        null_id_cols = [col for col in id_cols if dat[col].isna().any()]
+        if null_id_cols:
+            raise ValueError(f"SMH data has null values in identifier column(s) {null_id_cols}.")
+
         target_end_date = pd.to_datetime(dat["origin_date"]) + pd.to_timedelta(7 * dat["horizon"], unit="D")
         dat["wk_end_date"] = target_end_date + pd.offsets.Week(weekday=5, n=0)
         # `round` is kept because output_type_id is not a stable identifier across rounds: round 4
@@ -100,13 +108,13 @@ class SMHDataSource(DataSource):
         dat["agg_level"] = np.where(dat["location"] == "US", "national", "state")
 
         for anc in ancillary or []:
-            dat = _merge_ancillary(dat, anc, as_of)
+            dat = merge_ancillary(dat, anc, as_of)
 
         # pop/log_pop are only returned if the caller asked for them via `ancillary`
         include_pop = "pop" in dat.columns
         if self.rates:
             if not include_pop:
-                dat = _merge_ancillary(dat, PopulationData(), as_of)
+                dat = merge_ancillary(dat, PopulationData(), as_of)
             dat = dat.assign(inc=lambda x: x["inc"] / x["pop"] * 100000)
 
         dat["location"] = "syn-" + dat["location"]
@@ -120,11 +128,3 @@ class SMHDataSource(DataSource):
             cols += ["pop", "log_pop"]
         dat = dat[cols]
         return dat
-
-
-def _merge_ancillary(dat: pd.DataFrame, anc: AncillaryData, as_of: datetime.date) -> pd.DataFrame:
-    anc_df = anc.load(as_of=as_of)
-    join_keys = ["location", "season"] if "season" in anc_df.columns else ["location"]
-    if "agg_level" in anc_df.columns and "agg_level" in dat.columns:
-        join_keys.append("agg_level")
-    return dat.merge(anc_df, how="left", on=join_keys)

@@ -32,3 +32,14 @@ class AncillaryData(ABC):
         surveillance DataFrame by location (left join).
         """
         ...
+
+
+def merge_ancillary(df: pd.DataFrame, anc: AncillaryData, as_of: date | None) -> pd.DataFrame:
+    """
+    Left-join `anc`'s data onto `df` by location, plus season and agg_level when both frames have them.
+    """
+    anc_df = anc.load(as_of=as_of)
+    join_keys = ["location", "season"] if "season" in anc_df.columns else ["location"]
+    if "agg_level" in anc_df.columns and "agg_level" in df.columns:
+        join_keys.append("agg_level")
+    return df.merge(anc_df, how="left", on=join_keys)

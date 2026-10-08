@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - `DiseaseDataLoader.load()`: pandemic-season `NaN` masking is now applied after ancillary merges and SMH data are combined
+- `DiseaseDataLoader.load()` raises a `ValueError` when `sources` is empty, instead of pandas' "No objects to concatenate" error
+- Ancillary join logic moved into `ancillary.base.merge_ancillary()`, shared by `DiseaseDataLoader` and `SMHDataSource`
 - `utils.add_season_columns()` computes season columns once per unique `wk_end_date` (faster on large frames) and `date_to_ew_str()` accepts date/timestamp values as well as ISO strings
 
 ## [2.0.1]
