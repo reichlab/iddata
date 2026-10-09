@@ -1,0 +1,130 @@
+import datetime
+from urllib.parse import urljoin
+
+import numpy as np
+import pandas as pd
+
+from iddata import utils
+from iddata.ancillary.base import AncillaryData, merge_ancillary
+from iddata.ancillary.population import PopulationData
+from iddata.constants import SMH_DATA_PARQUET_URL
+from iddata.enums import Disease, SourceType
+from iddata.sources.base import DataSource
+
+
+class SMHDataSource(DataSource):
+    source_name = SourceType.SMH
+
+    def __init__(
+        self, disease: Disease = Disease.FLU, rates: bool = True,
+        model_id: list[str] | None = None, output_type_id: list[str] | None = None,
+    ):
+        self.disease = disease
+        self.rates = rates
+        self.model_id = model_id
+        self.output_type_id = output_type_id
+
+    def load(
+        self,
+        as_of: datetime.date | None = None,
+        ancillary: list[AncillaryData] | None = None,
+    ) -> pd.DataFrame:
+        """
+        Load SMH weekly hospitalization trajectory predictions. Raises ValueError if as_of is None. Only supports
+        as_of >= 2022-08-14.
+        If `model_id`/`output_type_id` were set on this instance, they're applied as parquet
+        predicate pushdown filters so only the matching rows are read.
+
+        If `rates` is True, inc is converted to a rate per 100k. Population comes from `ancillary` when it provides
+        pop; otherwise PopulationData is loaded just for the conversion and pop/log_pop are not returned.
+        """
+        if as_of is None:
+            raise ValueError("SMH requires as_of to be specified.")
+        if isinstance(as_of, str):
+            as_of = datetime.date.fromisoformat(as_of)
+        if as_of < datetime.date.fromisoformat("2022-08-14"):
+            raise NotImplementedError("SMH began collecting forecasts on 2022-08-14; no forecasts were available before this date and will thus not be loaded")
+        elif as_of < datetime.date.fromisoformat("2024-08-11"):
+            rounds = [4]
+        elif as_of < datetime.date.fromisoformat("2025-08-10"):
+            rounds = [4, 5]
+        else:
+            rounds = [4, 5, 6]
+
+        valid_diseases = (Disease.FLU,)
+        if self.disease not in valid_diseases:
+            raise ValueError(f"SMH supports {valid_diseases}; got {self.disease}.")
+
+        # FLU vs COVID scenario modeling hub
+        if self.disease == Disease.FLU:
+            disease_name = "flu"
+        # elif self.disease == Disease.COVID:
+        #     disease_name = "covid"
+
+        read_cols = ["model_id", "scenario_id", "location", "output_type_id", "value", "origin_date", "horizon"]
+        filters = [("target", "==", "inc hosp")]
+        if self.model_id:
+            filters.append(("model_id", "in", self.model_id))
+        if self.output_type_id:
+            filters.append(("output_type_id", "in", self.output_type_id))
+
+        round_frames = []
+        for r in rounds:
+            round_df = pd.read_parquet(
+                urljoin(SMH_DATA_PARQUET_URL, f"{disease_name}_scenario-round{r}_gz.parquet"),
+                engine="pyarrow",
+                columns=read_cols,
+                filters=filters or None,
+            )
+            round_df["round"] = r
+            round_frames.append(round_df)
+        dat = pd.concat(round_frames, axis=0)
+
+        # these are concatenated into source/season below, where a null would fail with an unhelpful TypeError
+        id_cols = ["model_id", "scenario_id", "output_type_id"]
+        null_id_cols = [col for col in id_cols if dat[col].isna().any()]
+        if null_id_cols:
+            raise ValueError(f"SMH data has null values in identifier column(s) {null_id_cols}.")
+
+        target_end_date = pd.to_datetime(dat["origin_date"]) + pd.to_timedelta(7 * dat["horizon"], unit="D")
+        dat["wk_end_date"] = target_end_date + pd.offsets.Week(weekday=5, n=0)
+        # `round` is kept because output_type_id is not a stable identifier across rounds: round 4
+        # shares each output_type_id across all locations (a true trajectory-sample id), while rounds
+        # 5+ scope each output_type_id to a single location (an arbitrary per-location index) -- so
+        # otid sampling/filtering downstream must be done within (round, location), not globally.
+        dat = dat[
+            [
+                "model_id",
+                "scenario_id",
+                "location",
+                "wk_end_date",
+                "output_type_id",
+                "value",
+                "round",
+            ]
+        ].rename(columns={"value": "inc"})
+
+        dat = utils.add_season_columns(dat)
+        dat["agg_level"] = np.where(dat["location"] == "US", "national", "state")
+
+        for anc in ancillary or []:
+            dat = merge_ancillary(dat, anc, as_of)
+
+        # pop/log_pop are only returned if the caller asked for them via `ancillary`
+        include_pop = "pop" in dat.columns
+        if self.rates:
+            if not include_pop:
+                dat = merge_ancillary(dat, PopulationData(), as_of)
+            dat = dat.assign(inc=lambda x: x["inc"] / x["pop"] * 100000)
+
+        dat["location"] = "syn-" + dat["location"]
+        dat["season"] = (
+            dat["season"] + dat["scenario_id"].str[0] + "-" + dat["output_type_id"]
+        )
+        dat["source"] = SourceType.SMH.value + "-" + dat["model_id"]
+
+        cols = ["agg_level", "location", "season", "season_week", "wk_end_date", "inc", "source", "round"]
+        if include_pop:
+            cols += ["pop", "log_pop"]
+        dat = dat[cols]
+        return dat

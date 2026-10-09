@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0]
+
+### Added
+- `SMHDataSource` data source for Flu Scenario Modeling Hub weekly hospitalization trajectories (rounds 4–6, selected by `as_of`), with optional `model_id`/`output_type_id` filters and a `rates` option (default `True`) that converts `inc` to rates per 100k. Population comes from `ancillary` if provided, otherwise it is loaded internally just for the conversion
+- `SourceType.SMH` enum member
+- `pyarrow` dependency for reading SMH parquet files
+
+### Changed
+- `DiseaseDataLoader.load()`: pandemic-season `NaN` masking is now applied after ancillary merges and SMH data are combined
+- `DiseaseDataLoader.load()` raises a `ValueError` when `sources` is empty, instead of pandas' "No objects to concatenate" error
+- Ancillary join logic moved into `ancillary.base.merge_ancillary()`, shared by `DiseaseDataLoader` and `SMHDataSource`
+- `utils.add_season_columns()` computes season columns once per unique `wk_end_date` (faster on large frames) and `date_to_ew_str()` accepts date/timestamp values as well as ISO strings
+
+## [2.0.1]
+
 ### Added
 - `DiseaseDataLoader.load()` now accepts `drop_pandemic_seasons: bool = True`; when `True`, sets `inc` to `NaN` for pandemic seasons (2008/09, 2009/10, 2020/21, 2021/22) uniformly across all sources after concatenation
 - Warning in `DiseaseDataLoader.load()` when `drop_pandemic_seasons=False` and an NHSN source is used with `as_of < 2024-11-15` (HHS archive data is incomplete for pandemic seasons)

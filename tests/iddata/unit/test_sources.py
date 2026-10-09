@@ -2,7 +2,7 @@
 
 import datetime
 import warnings
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pandas as pd
@@ -14,6 +14,7 @@ from iddata.sources.flusurvnet import FluSurvNetDataSource
 from iddata.sources.ilinet import ILINetDataSource
 from iddata.sources.nhsn import NHSNDataSource
 from iddata.sources.nssp import NSSPDataSource
+from iddata.sources.smh import SMHDataSource
 
 
 class TestNHSNDataSource:
@@ -90,6 +91,44 @@ class TestFluSurvNetDataSource:
         assert len(FluSurvNetDataSource().locations) > 0
 
 
+class TestSMHDataSource:
+    def test_source_name(self):
+        assert SMHDataSource.source_name == SourceType.SMH
+
+
+    def test_default_disease(self):
+        assert SMHDataSource().disease == Disease.FLU
+
+
+    def test_load_requires_as_of(self):
+        with pytest.raises(ValueError, match="as_of"):
+            SMHDataSource().load(as_of=None)
+
+
+    @pytest.mark.parametrize("disease", [Disease.COVID, Disease.RSV])
+    def test_load_rejects_unsupported_disease(self, disease):
+        with pytest.raises(ValueError, match="SMH supports"):
+            SMHDataSource(disease=disease).load(as_of=datetime.date(2023, 12, 30))
+
+
+    @pytest.mark.parametrize("null_col", ["model_id", "scenario_id", "output_type_id"])
+    def test_load_rejects_null_identifiers(self, null_col):
+        round_df = pd.DataFrame({
+            "model_id": ["m1", "m1"],
+            "scenario_id": ["A-2023", "A-2023"],
+            "location": ["01", "US"],
+            "output_type_id": ["1", "1"],
+            "value": [1.0, 2.0],
+            "origin_date": ["2023-09-03", "2023-09-03"],
+            "horizon": [1, 1],
+        })
+        round_df.loc[0, null_col] = None
+
+        with patch("iddata.sources.smh.pd.read_parquet", return_value=round_df), \
+                pytest.raises(ValueError, match=null_col):
+            SMHDataSource(rates=False).load(as_of=datetime.date(2023, 12, 30))
+
+
 class TestDiseaseDataLoaderMerge:
     """Tests for DiseaseDataLoader merge logic using mocked sources."""
 
@@ -113,6 +152,11 @@ class TestDiseaseDataLoaderMerge:
         src = MagicMock()
         src.load.return_value = self._make_source_df(source_value)
         return src
+
+
+    def test_load_requires_a_source(self):
+        with pytest.raises(ValueError, match="at least one source"):
+            DiseaseDataLoader().load(sources=[], as_of=datetime.date(2024, 1, 6))
 
 
     def test_load_combines_sources(self):
@@ -142,6 +186,17 @@ class TestDiseaseDataLoaderMerge:
         assert "pop" in df.columns
         assert "log_pop" in df.columns
         assert df["pop"].notna().all()
+
+
+    @pytest.mark.parametrize("ancillary", [None, []])
+    def test_load_without_ancillary_skips_population_merge(self, ancillary):
+        src = self._make_mock_source("nhsn")
+        loader = DiseaseDataLoader()
+
+        df = loader.load(sources=[src], as_of=datetime.date(2024, 1, 6), ancillary=ancillary)
+
+        assert "pop" not in df.columns
+        assert "log_pop" not in df.columns
 
 
     def test_load_passes_pop_for_hsa_when_ancillary_has_it(self):

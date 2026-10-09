@@ -47,6 +47,8 @@ Consequences worth knowing:
 - `as_of` is required for `NHSNDataSource` and `NSSPDataSource`. `NSSPDataSource` only supports `as_of >= 2025-09-17`,
   the first NSSP snapshot.
 - ILINet, FluSurv-NET, and the ancillary files are not versioned. Those sources warn and ignore `as_of`.
+- SMH projections are not versioned either, but `SMHDataSource` uses `as_of` to decide which rounds to include. See
+  [Scenario Modeling Hub projections](#scenario-modeling-hub-projections).
 
 ## Snapshot workflows
 
@@ -99,6 +101,52 @@ Each run:
 - The NCI SEER [county-to-HSA crosswalk](https://seer.cancer.gov/seerstat/variables/countyattribs/Health.Service.Areas.xls)
 
 If those URLs change or go offline, `PopulationData` will fail even though the bucket is fine.
+
+### Scenario Modeling Hub projections
+
+`SMHDataSource` reads Flu Scenario Modeling Hub weekly hospitalization (`inc hosp`) trajectories from parquet files
+under `SMH_DATA_PARQUET_URL` in [`src/iddata/constants.py`](../src/iddata/constants.py). That URL points to
+`eda/data/` in the [`lshandross/gbqr-extend`](https://github.com/lshandross/gbqr-extend) GitHub repository, with one
+file per round named `flu_scenario-round<N>_gz.parquet`. These files are static and are not snapshotted by any workflow
+in this repo.
+
+`as_of` decides which rounds are loaded, based on which rounds had been released by that date:
+
+| `as_of` | Rounds loaded |
+|---|---|
+| before 2022-08-14 | none; raises `NotImplementedError` |
+| 2022-08-14 to 2024-08-10 | 4 |
+| 2024-08-11 to 2025-08-09 | 4, 5 |
+| 2025-08-10 and later | 4, 5, 6 |
+
+Each round's projections are complete when released and are not revised, so loading the full file for each included
+round is correct.
+
+The returned data differs from the surveillance sources in a few ways:
+
+- `location` is prefixed with `syn-` (for example, `syn-25`) to mark it as synthetic rather than observed data.
+- `season` combines the season, the first letter of the scenario ID, and the trajectory's `output_type_id` (for
+  example, `2023/24A-12`), so that each trajectory is treated as its own season.
+- `source` is `smh-<model_id>`.
+- A `round` column is included. `output_type_id` means something different in round 4 (one ID per trajectory shared
+  across locations) than in rounds 5 and later (one ID per location), so filtering by `output_type_id` should be done
+  within each round and location.
+- With `rates=True` (the default), `inc` is a rate per 100,000 people. If you pass population data through `ancillary`,
+  that data is used, and `pop`/`log_pop` are included in the output. Otherwise `SMHDataSource` loads `PopulationData`
+  only for the conversion and leaves those columns out.
+
+> **Memory use:** loading every model for every round needs a lot of memory. Measured with the default `rates=True`
+> and no filters:
+>
+> | `as_of` | Rounds | Rows | Peak memory |
+> |---|---|---|---|
+> | 2023-12-30 | 4 | ~6.6 million | ~2.5 GB |
+> | 2025-09-20 | 4, 5, 6 | ~58 million | ~17 GB |
+>
+> That is more than many laptops and GitHub-hosted runners have. Pass `model_id` and/or `output_type_id` to
+> `SMHDataSource` to keep only the rows you need. The filters are applied as the parquet files are read, so rows that
+> don't match never reach the DataFrame. The integration tests use `model_id=["MOBS_NEU-GLEAM_FLU"]` with
+> `output_type_id=["1", "2"]` for this reason.
 
 ## Adding a new data source
 

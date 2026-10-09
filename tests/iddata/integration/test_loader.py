@@ -9,15 +9,26 @@ import datetime
 
 import pytest
 
+from iddata.ancillary.population import PopulationData
 from iddata.constants import PANDEMIC_SEASONS
 from iddata.loader import DiseaseDataLoader
 from iddata.sources.flusurvnet import FluSurvNetDataSource
 from iddata.sources.ilinet import ILINetDataSource
 from iddata.sources.nhsn import NHSNDataSource
 from iddata.sources.nssp import NSSPDataSource
+from iddata.sources.smh import SMHDataSource
 
 _DEFAULT_AS_OF = datetime.date.fromisoformat("2023-12-30")
 _NSSP_AS_OF = datetime.date.fromisoformat("2025-09-20")
+
+
+def _smh_test_source(**kwargs) -> SMHDataSource:
+    """
+    An SMHDataSource trimmed to one model and two trajectories. Loading every model for rounds 4-6 peaks at ~17 GB, more
+    than a GitHub-hosted runner has. In round 4 these output_type_ids cover all 52 locations (including US); in rounds
+    5+ output_type_ids are per-location, so they return only a few rows.
+    """
+    return SMHDataSource(model_id=["MOBS_NEU-GLEAM_FLU"], output_type_id=["1", "2"], **kwargs)
 
 
 @pytest.mark.parametrize("sources, expected_source_values", [
@@ -25,15 +36,18 @@ _NSSP_AS_OF = datetime.date.fromisoformat("2025-09-20")
     ([ILINetDataSource()], {"ilinet"}),
     ([FluSurvNetDataSource()], {"flusurvnet"}),
     ([NSSPDataSource()], {"nssp"}),
-    ([NHSNDataSource(), ILINetDataSource(), FluSurvNetDataSource(), NSSPDataSource()],
-     {"nhsn", "ilinet", "flusurvnet", "nssp"}),
+    ([_smh_test_source()], {"smh"}),
+    ([NHSNDataSource(), ILINetDataSource(), FluSurvNetDataSource(), NSSPDataSource(), _smh_test_source()],
+     {"nhsn", "ilinet", "flusurvnet", "nssp", "smh"}),
 ])
 def test_load_data_sources(sources, expected_source_values):
     loader = DiseaseDataLoader()
 
     as_of = _NSSP_AS_OF if any(isinstance(s, NSSPDataSource) for s in sources) else _DEFAULT_AS_OF
     df = loader.load(sources=sources, as_of=as_of)
-    assert set(df["source"].unique()) == expected_source_values
+    # SMH source values are "smh-<model_id>"; collapse them to "smh" so every source is compared the same way
+    source_values = df["source"].where(~df["source"].str.startswith("smh-"), "smh")
+    assert set(source_values.unique()) == expected_source_values
 
     # drop_pandemic_seasons defaults to True, so no real source should return usable inc for those seasons.
     # ILINet is currently the only source whose data actually spans one: at these as_of dates NHSN and NSSP
@@ -52,6 +66,28 @@ def test_nssp_columns():
     nhsn_df = loader.load(sources=[NHSNDataSource()], as_of=_DEFAULT_AS_OF)
     nssp_df = loader.load(sources=[NSSPDataSource()], as_of=_NSSP_AS_OF)
     assert set(nssp_df.columns) == set(nhsn_df.columns)
+
+
+def test_smh_wk_end_date_is_saturday():
+    # rates=False: this test only checks date alignment, so it skips the population load needed for rates
+    df = _smh_test_source(rates=False).load(as_of=_DEFAULT_AS_OF)
+    assert (df["wk_end_date"].dt.dayofweek == 5).all()
+
+
+@pytest.mark.parametrize("ancillary, expect_pop", [(None, False), ([PopulationData()], True)])
+def test_smh_rates_population_source(ancillary, expect_pop):
+    # rates=True converts inc with population whether or not it was requested via ancillary,
+    # but pop/log_pop are only returned when requested.
+    counts = _smh_test_source(rates=False).load(as_of=_DEFAULT_AS_OF)
+    rates = _smh_test_source(rates=True).load(as_of=_DEFAULT_AS_OF, ancillary=ancillary)
+
+    assert ("pop" in rates.columns) == expect_pop
+    assert ("log_pop" in rates.columns) == expect_pop
+    # every location, including the national row, must get a population to convert with
+    assert (rates["agg_level"] == "national").any()
+    assert rates["inc"].notna().all()
+    # every location has pop > 100k, so converting to rates per 100k must shrink inc
+    assert rates["inc"].sum() < counts["inc"].sum()
 
 
 def test_nssp_locations():

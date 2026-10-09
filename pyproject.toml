@@ -13,6 +13,7 @@ dynamic = ["version"]
 dependencies = [
     "numpy",
     "pandas",
+    "pyarrow>=21.0.0",
     "pymmwr",
     "rich",
     "s3fs",

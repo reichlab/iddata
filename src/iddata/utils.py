@@ -14,7 +14,9 @@ def load_fips_mappings() -> pd.DataFrame:
 
 
 def date_to_ew_str(row, date_col_name="wk_end_date"):
-    ew = pymmwr.date_to_epiweek(datetime.date.fromisoformat(row[date_col_name]))
+    d = row[date_col_name]
+    d = datetime.date.fromisoformat(d) if isinstance(d, str) else pd.Timestamp(d).date()
+    ew = pymmwr.date_to_epiweek(d)
     ew_str = str(ew.year) + str(ew.week)
     return ew_str
 
@@ -64,9 +66,12 @@ def convert_epiweek_to_season(epiweek):
 
 def add_season_columns(dat: pd.DataFrame) -> pd.DataFrame:
     """Add season and season_week columns from wk_end_date, then sort."""
-    ew_str = dat.apply(date_to_ew_str, axis=1)
-    dat["season"] = convert_epiweek_to_season(ew_str)
-    dat["season_week"] = convert_epiweek_to_season_week(ew_str)
+    unique_dates = pd.Series(dat["wk_end_date"].unique())
+    unique_ew_str = unique_dates.apply(lambda d: date_to_ew_str({"wk_end_date": d}))
+    season_by_date = dict(zip(unique_dates, convert_epiweek_to_season(unique_ew_str)))
+    season_week_by_date = dict(zip(unique_dates, convert_epiweek_to_season_week(unique_ew_str)))
+    dat["season"] = dat["wk_end_date"].map(season_by_date)
+    dat["season_week"] = dat["wk_end_date"].map(season_week_by_date)
     return dat.sort_values(by=["season", "season_week"])
 
 
