@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `NSSPDataSource.load()` accepts `as_of` dates before 2025-09-17 (the first versioned snapshot) instead of raising `NotImplementedError`; it warns, loads the 2025-09-17 snapshot and keeps only weeks ending before `as_of`. Values for those weeks reflect later revisions, not what was available on `as_of`
+
 ## [2.1.0]
 
 ### Added

@@ -105,6 +105,16 @@ def test_nssp_locations():
     assert actual_agg_levels == sorted(expected_agg_levels)
 
 
+def test_nssp_as_of_before_first_snapshot():
+    """An as_of before the first versioned snapshot falls back to that snapshot, filtered to weeks before as_of."""
+    as_of = datetime.date.fromisoformat("2025-01-11")
+    with pytest.warns(UserWarning, match="prior to 2025-09-17"):
+        df = NSSPDataSource().load(as_of=as_of)
+
+    assert not df.empty
+    assert str(df["wk_end_date"].max())[:10] == "2025-01-04"
+
+
 @pytest.mark.parametrize("pinned", [True, False])
 @pytest.mark.parametrize("source_cls, pinned_as_of, wk_end_date_expected", [
     (NHSNDataSource, _DEFAULT_AS_OF, "2023-12-23"),

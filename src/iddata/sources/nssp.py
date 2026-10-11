@@ -24,24 +24,27 @@ class NSSPDataSource(DataSource):
 
     def load(self, as_of: datetime.date | None = None) -> pd.DataFrame:
         """
-        Load NSSP emergency department visit data. Raises ValueError if as_of is None. Only supports as_of >=
-        2025-09-17. Returns all available granularities (state + HSA rows).
+        Load NSSP emergency department visit data. Raises ValueError if as_of is None. Versioned snapshots start
+        at 2025-09-17; for an earlier as_of, the 2025-09-17 snapshot is loaded (with a warning) and filtered to
+        weeks ending before as_of. Returns all available granularities (national, state and HSA rows).
         """
         if as_of is None:
             raise ValueError("NSSP requires as_of to be specified.")
 
         if isinstance(as_of, str):
             as_of = datetime.date.fromisoformat(as_of)
-        if as_of < datetime.date.fromisoformat("2025-09-17"):
-            raise NotImplementedError("NSSP only supports as_of >= 2025-09-17.")
 
         valid_diseases = (Disease.FLU, Disease.COVID, Disease.RSV)
         if self.disease not in valid_diseases:
             raise ValueError(f"NSSP supports {valid_diseases}; got {self.disease}.")
 
+        nssp_min_as_of = datetime.date.fromisoformat("2025-09-17")
+        if as_of < nssp_min_as_of:
+            warnings.warn("NSSP does not support versioned data prior to 2025-09-17; filtered static data will be loaded")
         file_path = get_versioned_file_path(
             "infectious-disease-data/data-raw/nssp/nssp-????-??-??.csv",
-            as_of)
+            max(as_of, nssp_min_as_of))
+
         dat = pd.read_csv(urljoin(S3_DATA_RAW_URL, file_path))
 
         if self.disease == Disease.FLU:
@@ -72,6 +75,7 @@ class NSSPDataSource(DataSource):
         dat = utils.add_season_columns(dat)
 
         dat["wk_end_date"] = pd.to_datetime(dat["wk_end_date"])
+        dat = dat.loc[dat["wk_end_date"] < pd.to_datetime(as_of)]
         dat["agg_level"] = np.where(dat["hsa_nci_id"] == "All", "state", "hsa")
         dat["agg_level"] = np.where(dat["fips_code"] == "US", "national", dat["agg_level"])
         dat["location"] = np.where(dat["hsa_nci_id"] == "All", dat["fips_code"], dat["hsa_nci_id"])
