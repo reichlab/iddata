@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0]
+
+### Added
+- `NHSNDataSource(backend=...)`: a new `DataBackend.EPIDATA` backend loads NHSN from CMU Delphi's Epidata V5 API. It requires the `DELPHI_EPIDATA_KEY` environment variable and falls back to S3 for `as_of` before 2024-11-19, the first Delphi version. The default is still `DataBackend.S3`. An optional `epidata_ctx` argument takes a preconfigured `epidatpy.EpiDataContext`, for example with `use_cache=True`
+- `DataBackend` enum
+- `epidatpy` dependency
+
+### Fixed
+- `NHSNDataSource` (S3 backend) drops HHS region rows (`Region 1`–`Region 10`), which appear in NHSN snapshots from 2025-09-10 on. These rows used to come back with a missing `location` and `agg_level="state"`
+
 ## [2.1.0]
 
 ### Added

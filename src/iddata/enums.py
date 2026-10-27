@@ -21,3 +21,8 @@ class SourceType(str, Enum):
     FLUSURVNET = "flusurvnet"
     ILINET = "ilinet"
     SMH = "smh"
+
+
+class DataBackend(str, Enum):
+    S3 = "s3"
+    EPIDATA = "epidata"

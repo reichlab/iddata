@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from iddata.enums import Disease, SourceType
+from iddata.enums import DataBackend, Disease, SourceType
 from iddata.loader import DiseaseDataLoader
 from iddata.sources.flusurvnet import FluSurvNetDataSource
 from iddata.sources.ilinet import ILINetDataSource
@@ -36,6 +36,148 @@ class TestNHSNDataSource:
         src = NHSNDataSource()
         with pytest.raises((ValueError, TypeError)):
             src.load(as_of=None)
+
+
+    def test_default_backend(self):
+        src = NHSNDataSource()
+        assert src.backend == DataBackend.S3
+        assert src.epidata_ctx is None
+
+
+    def test_backend_string_is_coerced(self):
+        assert NHSNDataSource(backend="epidata").backend == DataBackend.EPIDATA
+
+
+    def test_epidata_backend_rejects_rsv(self):
+        with pytest.raises(ValueError, match="epidata"):
+            NHSNDataSource(disease=Disease.RSV, backend=DataBackend.EPIDATA)
+
+
+    @pytest.mark.parametrize("backend, as_of, expected", [
+        (DataBackend.S3, "2024-11-14", "_load_from_hhs"),
+        (DataBackend.S3, "2024-11-15", "_load_from_nhsn"),
+        (DataBackend.S3, "2024-11-19", "_load_from_nhsn"),
+        (DataBackend.EPIDATA, "2024-11-14", "_load_from_hhs"),
+        (DataBackend.EPIDATA, "2024-11-15", "_load_from_nhsn"),
+        (DataBackend.EPIDATA, "2024-11-18", "_load_from_nhsn"),
+        (DataBackend.EPIDATA, "2024-11-19", "_load_from_epidata"),
+    ])
+    def test_loader_for(self, backend, as_of, expected):
+        src = NHSNDataSource(backend=backend)
+        assert src._loader_for(datetime.date.fromisoformat(as_of)) == getattr(src, expected)
+
+
+    @pytest.mark.parametrize("backend", [DataBackend.S3, DataBackend.EPIDATA])
+    def test_covid_before_cutover_raises(self, backend):
+        src = NHSNDataSource(disease=Disease.COVID, backend=backend)
+        with pytest.raises(NotImplementedError, match="2024-11-15"):
+            src.load(as_of=datetime.date(2024, 11, 14))
+
+
+    @staticmethod
+    def _fips_mappings() -> pd.DataFrame:
+        return pd.DataFrame({"abbreviation": ["US", "MA"], "location": ["US", "25"]})
+
+
+    @staticmethod
+    def _mock_epidata_ctx(df: pd.DataFrame) -> MagicMock:
+        ctx = MagicMock()
+        ctx.epidata_snapshot.return_value.df.return_value = df
+        return ctx
+
+
+    def _epidata_snapshot_df(self) -> pd.DataFrame:
+        return pd.DataFrame({
+            "signal": pd.array(["confirmed_admissions_flu_ew"] * 4, dtype="string"),
+            "geo_type": pd.array(["nation", "nation", "state", "state"], dtype="string"),
+            "geo_value": pd.array(["us", "us", "ma", "ma"], dtype="string"),
+            "reference_time": pd.to_datetime(["2025-01-04", "2025-01-11"] * 2).astype("datetime64[us]"),
+            "value": pd.array([100.0, 200.0, 10.0, None], dtype="Float64"),
+        })
+
+
+    @pytest.mark.parametrize("disease, signal", [
+        (Disease.FLU, "confirmed_admissions_flu_ew"),
+        (Disease.COVID, "confirmed_admissions_covid_ew"),
+    ])
+    def test_load_from_epidata(self, disease, signal):
+        ctx = self._mock_epidata_ctx(self._epidata_snapshot_df())
+        src = NHSNDataSource(disease=disease, backend=DataBackend.EPIDATA, epidata_ctx=ctx)
+        as_of = datetime.date(2025, 1, 15)
+        with patch("iddata.sources.nhsn.load_fips_mappings", return_value=self._fips_mappings()):
+            result = src._load_from_epidata(as_of)
+
+        ctx.epidata_snapshot.assert_called_once_with(
+            source="nhsn", signals=signal, geo_type=["nation", "state"], snapshot_date=as_of, fill_method="source")
+        assert list(result.columns) == ["location", "wk_end_date", "inc"]
+        assert result["location"].tolist() == ["US", "US", "25", "25"]
+        assert result["wk_end_date"].tolist() == ["2025-01-04", "2025-01-11"] * 2
+        assert result["inc"].dtype == np.float64
+        assert result["inc"].tolist()[:3] == [100.0, 200.0, 10.0]
+        assert np.isnan(result["inc"].iloc[3])
+
+
+    def test_load_through_epidata(self):
+        ctx = self._mock_epidata_ctx(self._epidata_snapshot_df())
+        src = NHSNDataSource(backend=DataBackend.EPIDATA, rates=False, epidata_ctx=ctx)
+        with patch("iddata.sources.nhsn.load_fips_mappings", return_value=self._fips_mappings()):
+            result = src.load(as_of="2025-01-15")
+
+        assert list(result.columns) == ["agg_level", "location", "season", "season_week", "wk_end_date", "inc",
+                                        "source"]
+        assert pd.api.types.is_datetime64_any_dtype(result["wk_end_date"])
+        assert result["inc"].dtype == np.float64
+        assert set(result["season"]) == {"2024/25"}
+        assert (result["source"] == "nhsn").all()
+        agg_by_loc = result.drop_duplicates("location").set_index("location")["agg_level"].to_dict()
+        assert agg_by_loc == {"US": "national", "25": "state"}
+
+
+    def test_load_from_epidata_empty_raises(self):
+        ctx = self._mock_epidata_ctx(self._epidata_snapshot_df().iloc[0:0])
+        src = NHSNDataSource(backend=DataBackend.EPIDATA, epidata_ctx=ctx)
+        with pytest.raises(ValueError, match="no NHSN rows"):
+            src._load_from_epidata(datetime.date(2025, 1, 15))
+
+
+    def test_epidata_requires_key(self, monkeypatch):
+        monkeypatch.delenv("DELPHI_EPIDATA_KEY", raising=False)
+        src = NHSNDataSource(backend=DataBackend.EPIDATA, rates=False)
+        with pytest.raises(RuntimeError, match="DELPHI_EPIDATA_KEY"):
+            src.load(as_of=datetime.date(2025, 1, 15))
+
+
+    @pytest.mark.parametrize("as_of, s3_loader", [
+        (datetime.date(2024, 3, 2), "_load_from_hhs"),
+        (datetime.date(2024, 11, 18), "_load_from_nhsn"),
+    ])
+    def test_epidata_fallback_needs_no_key(self, monkeypatch, as_of, s3_loader):
+        monkeypatch.delenv("DELPHI_EPIDATA_KEY", raising=False)
+        src = NHSNDataSource(backend=DataBackend.EPIDATA, rates=False)
+        raw = pd.DataFrame({"location": ["US", "25"], "wk_end_date": ["2024-02-24", "2024-02-24"], "inc": [1.0, 2.0]})
+        with patch.object(src, s3_loader, return_value=raw) as mock_loader:
+            result = src.load(as_of=as_of)
+
+        mock_loader.assert_called_once_with(as_of)
+        assert len(result) == 2
+        assert src.epidata_ctx is None
+
+
+    def test_load_from_nhsn_drops_region_rows(self):
+        raw = pd.DataFrame({
+            "Geographic aggregation": ["USA", "MA", "Region 1", "Region 10"],
+            "Week Ending Date": ["2026-10-10"] * 4,
+            "Total Influenza Admissions": [100.0, 10.0, 20.0, 30.0],
+            "Total COVID-19 Admissions": [50.0, 5.0, 6.0, 7.0],
+        })
+        src = NHSNDataSource()
+        with patch("iddata.sources.nhsn.get_versioned_file_path", return_value="nhsn-2026-10-14.csv"), \
+                patch("iddata.sources.nhsn.pd.read_csv", return_value=raw), \
+                patch("iddata.sources.nhsn.load_fips_mappings", return_value=self._fips_mappings()):
+            result = src._load_from_nhsn(datetime.date(2026, 10, 14))
+
+        assert result["location"].tolist() == ["US", "25"]
+        assert result["inc"].tolist() == [100.0, 10.0]
 
 
 class TestNSSPDataSource:
