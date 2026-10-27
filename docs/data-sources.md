@@ -18,7 +18,7 @@ The bucket is publicly readable, so no AWS credentials are needed to use iddata.
 
 | Source | Prefix under `data-raw/` | Contents | Used by | How it is updated |
 |---|---|---|---|---|
-| NHSN | `influenza-nhsn/nhsn-YYYY-MM-DD.csv` | Dated snapshots of NHSN hospital admissions (flu and COVID-19) | `NHSNDataSource` (`as_of >= 2024-11-15`) | [`snapshot-nhsn-data.yml`](../.github/workflows/snapshot-nhsn-data.yml), weekly |
+| NHSN | `influenza-nhsn/nhsn-YYYY-MM-DD.csv` | Dated snapshots of NHSN hospital admissions (flu and COVID-19) | `NHSNDataSource` (`as_of >= 2024-11-15`; with the Epidata backend, only `as_of` 2024-11-15 to 2024-11-18) | [`snapshot-nhsn-data.yml`](../.github/workflows/snapshot-nhsn-data.yml), weekly |
 | NHSN | `influenza-hhs/hhs-YYYY-MM-DD.csv` | Dated snapshots of the older HHS Protect flu hospital admissions data | `NHSNDataSource` (`as_of < 2024-11-15`) | Historical archive; no workflow in this repo writes to it |
 | NSSP | `nssp/nssp-YYYY-MM-DD.csv` | Dated snapshots of NSSP ED visit percentages (flu, COVID-19, RSV) | `NSSPDataSource` | [`snapshot-nssp-data.yml`](../.github/workflows/snapshot-nssp-data.yml), twice weekly |
 | ILINet | `influenza-ilinet/` | `ilinet.csv`, `ilinet_hhs.csv`, `ilinet_state.csv` | `ILINetDataSource` | Static, uploaded by hand |
@@ -32,6 +32,9 @@ The bucket is publicly readable, so no AWS credentials are needed to use iddata.
 
 NHSN and NSSP data are revised after first release, so iddata keeps a dated copy of each release and serves whichever
 one was available on the requested date. This lets models be backtested on the data they would have seen at the time.
+
+This section describes the S3 snapshots, which are the default for NHSN and the only option for NSSP. NHSN can instead
+be versioned by Delphi Epidata. See [NHSN from Delphi Epidata](#nhsn-from-delphi-epidata).
 
 [`get_versioned_file_path`](../src/iddata/s3.py) implements the lookup:
 
@@ -68,6 +71,12 @@ Each run:
    Saturday).
 4. Assumes the `iddata-github-action` IAM role through GitHub OIDC and copies the file to S3 with `aws s3 cp`.
 
+`snapshot-nhsn-data.yml` keeps running even though NHSN can also be loaded from Delphi Epidata. S3 is still the default
+NHSN backend, and the S3 archive is the only source of versions from before 2024-11-19.
+
+Starting with `nhsn-2025-09-10.csv`, NHSN snapshots also include HHS region rows (`Region 1` to `Region 10`).
+`NHSNDataSource` drops these rows. Earlier versions kept them with a missing `location` and labeled them as states.
+
 > **NSSP history:** the Wednesday snapshot captures CDC's preliminary NSSP release, and the Friday snapshot captures the
 > official one. Preliminary data used to be hosted as `latest.parquet` in the
 > [CDCgov/covid19-forecast-hub](https://github.com/CDCgov/covid19-forecast-hub) repository, and earlier versions of the
@@ -92,6 +101,46 @@ Each run:
 >   data in any week, and Iowa has earlier data.
 
 ## Data read from outside the bucket
+
+### NHSN from Delphi Epidata
+
+`NHSNDataSource` can load NHSN from CMU Delphi's [Epidata V5 API](https://cmu-delphi.github.io/delphi-epidata/api/v5_signals.html)
+(`https://delphi.cmu.edu/epidata/v5/`) via [`epidatpy`](https://pypi.org/project/epidatpy/) instead of from S3. This
+is opt-in:
+
+```python
+from iddata.enums import DataBackend
+from iddata.sources.nhsn import NHSNDataSource
+
+NHSNDataSource(backend=DataBackend.EPIDATA)  # or backend="epidata"
+```
+
+- **API key:** the Epidata backend requires the `DELPHI_EPIDATA_KEY` environment variable. Request a free key using
+  the [registration form](https://api.delphi.cmu.edu/epidata/admin/registration_form). iddata raises a `RuntimeError`
+  if the key is missing when Delphi is first queried. Delphi itself accepts requests without a key (with lower rate
+  limits) and doesn't reject an invalid key, so iddata can only check that the variable is set. If you pass your own
+  `epidata_ctx`, iddata skips this check.
+- **Signals:** source `nhsn`, signals `confirmed_admissions_flu_ew` (flu) and `confirmed_admissions_covid_ew`
+  (COVID-19), geo types `nation` and `state`, `fill_method="source"`. Only `Disease.FLU` and `Disease.COVID` are
+  supported.
+- **Earliest version and S3 fallback:** Delphi's NHSN versions start on 2024-11-19. For an earlier date, Delphi returns
+  an empty table rather than an error. So with the Epidata backend, an `as_of` before 2024-11-19 falls back to the S3
+  path without a warning: the HHS archive before 2024-11-15, and NHSN snapshots for 2024-11-15 to 2024-11-18. No API
+  key is needed for these dates. This means the Epidata backend gives no as-published history before 2024-11-19. For
+  later `as_of` dates, both backends return every week back to 2020-08-08 as it stood on that date.
+- **Agreement with S3:** for a Wednesday `as_of`, the two backends return identical data (checked on 2025-01-08 and
+  2026-10-14). Delphi stamps the Wednesday release 12:00 UTC, before the 17:45 UTC S3 snapshot, so a Wednesday `as_of`
+  includes that day's release with either backend. Row order within a week can differ.
+- **Non-Wednesday `as_of`:** the backends define "as of" at different granularities. S3 returns the most recent
+  snapshot on or before `as_of`, which is usually a Wednesday. Epidata returns each value as last published on or before
+  `as_of`, including Thursday, Friday and holiday-shifted releases that S3 never captured. For example, with
+  `as_of=2025-01-04` the backends differ in 37 state-weeks and 3 national weeks, all from releases on 2025-01-02 and
+  2025-01-03. This is expected, and iddata doesn't try to reconcile it.
+- **Performance:** one `load()` makes two requests (nation and state) and takes about 1 to 4 seconds. For backtests
+  that load the same `as_of` more than once, pass `epidata_ctx=EpiDataContext(use_cache=True)` to cache responses on
+  disk. In one test, a repeated request dropped from about 0.9 to 0.2 seconds.
+
+### Population and HSA files
 
 `PopulationData` also builds health service area (HSA) populations from files it downloads directly, not from S3:
 

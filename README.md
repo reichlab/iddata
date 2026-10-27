@@ -20,6 +20,10 @@ The raw files are read at load time from the public `infectious-disease-data` S3
 needed. NHSN and NSSP are snapshotted on a schedule by GitHub Actions workflows in this repository
 ([`.github/workflows/`](.github/workflows)). This lets data be loaded as it was on a given `as_of` date.
 
+NHSN can optionally be loaded from CMU Delphi's Epidata API instead (`NHSNDataSource(backend="epidata")`). That
+backend requires a free API key in the `DELPHI_EPIDATA_KEY` environment variable. Get one from the
+[registration form](https://api.delphi.cmu.edu/epidata/admin/registration_form).
+
 See [docs/data-sources.md](docs/data-sources.md) for the bucket layout, what each source reads, how versioned snapshots
 and `as_of` work, and how the snapshot workflows run.
 
